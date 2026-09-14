@@ -23,3 +23,7 @@ data/processed/*
 *.db
 *.log
 .DS_Store
+
+# Generated report QA artifacts
+tmp/
+output/

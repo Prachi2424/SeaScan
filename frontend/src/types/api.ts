@@ -141,3 +141,11 @@ export interface AttributionResponse {
   scoring_formula: Record<string, number>;
   candidates: CandidateVessel[];
 }
+
+// ---------------------------------------------------------------------------
+// Phase 6 — immutable forensic report export
+// ---------------------------------------------------------------------------
+
+export interface ForensicReportRequest {
+  investigation_id: string;
+}

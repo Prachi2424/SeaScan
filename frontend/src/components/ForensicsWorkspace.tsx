@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
-import { FolderPlus, Satellite, ShieldCheck, UploadCloud, Waves } from "lucide-react";
+import { Download, FileArchive, FolderPlus, Satellite, ShieldCheck, UploadCloud, Waves } from "lucide-react";
 
 import { api, ApiError } from "../lib/api";
 import { computeCentroid } from "../lib/geo";
@@ -75,6 +75,8 @@ export function ForensicsWorkspace({ acceptedFormats }: ForensicsWorkspaceProps)
   const [attributionError, setAttributionError] = useState<string | null>(null);
 
   const [selectedMmsi, setSelectedMmsi] = useState<string | null>(null);
+  const [reportLoading, setReportLoading] = useState<"pdf" | "package" | null>(null);
+  const [reportError, setReportError] = useState<string | null>(null);
 
   useEffect(() => {
     void loadInvestigations();
@@ -188,6 +190,21 @@ export function ForensicsWorkspace({ acceptedFormats }: ForensicsWorkspaceProps)
 
   const activeStage: FlowStageKey | null = backwardLoading || forwardLoading ? "drift" : attributionLoading ? "aisFilter" : null;
 
+  async function handleReportDownload(format: "pdf" | "package") {
+    if (!investigation) return;
+    setReportLoading(format);
+    setReportError(null);
+    const payload = { investigation_id: investigation.id };
+    try {
+      if (format === "pdf") await api.downloadForensicPdf(payload);
+      else await api.downloadForensicPackage(payload);
+    } catch (error) {
+      setReportError(describeError(error));
+    } finally {
+      setReportLoading(null);
+    }
+  }
+
   if (!investigation) {
     return (
       <section className="investigation-gate" aria-labelledby="investigation-gate-title">
@@ -245,6 +262,12 @@ export function ForensicsWorkspace({ acceptedFormats }: ForensicsWorkspaceProps)
           <h2>{investigation.title}</h2>
         </div>
         <div className="forensics-workspace__header-actions">
+          <button type="button" className="secondary-button" onClick={() => void handleReportDownload("pdf")} disabled={reportLoading !== null}>
+            <Download size={16} /> {reportLoading === "pdf" ? "Building PDF…" : "Export PDF"}
+          </button>
+          <button type="button" className="secondary-button" onClick={() => void handleReportDownload("package")} disabled={reportLoading !== null}>
+            <FileArchive size={16} /> {reportLoading === "package" ? "Packaging…" : "Evidence package"}
+          </button>
           <button type="button" className="secondary-button" onClick={() => setInvestigation(null)}>
             Switch investigation
           </button>
@@ -253,6 +276,8 @@ export function ForensicsWorkspace({ acceptedFormats }: ForensicsWorkspaceProps)
           </button>
         </div>
       </header>
+
+      {reportError && <p className="report-export-error" role="alert">Report export failed: {reportError}</p>}
 
       <div className="asset-chip-row" role="list">
         <span role="listitem" className={`asset-chip ${satellite ? "asset-chip--ready" : ""}`}>

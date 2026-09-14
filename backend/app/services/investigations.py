@@ -105,3 +105,26 @@ def get_asset(connection: sqlite3.Connection, asset_id: str, expected_type: str)
     if row["asset_type"] != expected_type:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Evidence asset is {row['asset_type']}, not {expected_type}.")
     return _asset_from_row(row), row["stored_filename"]
+
+
+def record_analysis(connection: sqlite3.Connection, investigation_id: str, result_type: str, payload: dict[str, object]) -> None:
+    get_investigation(connection, investigation_id)
+    connection.execute(
+        "INSERT INTO analysis_results (id, investigation_id, result_type, payload_json, created_at) VALUES (?, ?, ?, ?, ?)",
+        (str(uuid.uuid4()), investigation_id, result_type, json.dumps(payload), _now()),
+    )
+    connection.execute("UPDATE investigations SET updated_at = ? WHERE id = ?", (_now(), investigation_id))
+
+
+def latest_analysis_results(connection: sqlite3.Connection, investigation_id: str) -> dict[str, dict[str, object]]:
+    get_investigation(connection, investigation_id)
+    rows = connection.execute(
+        """SELECT result_type, payload_json FROM analysis_results
+           WHERE investigation_id = ? ORDER BY created_at DESC""",
+        (investigation_id,),
+    ).fetchall()
+    results: dict[str, dict[str, object]] = {}
+    for row in rows:
+        if row["result_type"] not in results:
+            results[row["result_type"]] = json.loads(row["payload_json"])
+    return results

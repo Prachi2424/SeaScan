@@ -32,6 +32,18 @@ CREATE TABLE IF NOT EXISTS evidence_assets (
 );
 
 CREATE INDEX IF NOT EXISTS idx_assets_investigation ON evidence_assets(investigation_id);
+
+CREATE TABLE IF NOT EXISTS analysis_results (
+    id TEXT PRIMARY KEY,
+    investigation_id TEXT NOT NULL,
+    result_type TEXT NOT NULL CHECK(result_type IN ('satellite_detection', 'drift_backward', 'drift_forward', 'attribution')),
+    payload_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(investigation_id) REFERENCES investigations(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_analysis_investigation_type
+ON analysis_results(investigation_id, result_type, created_at DESC);
 """
 
 

@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.ingestion import router as ingestion_router
 from app.api.investigations import router as investigations_router
+from app.api.reports import router as reports_router
 from app.api.forensics import router as forensics_router
 from app.api.system import router as system_router
 from app.core.config import get_settings
@@ -43,6 +44,7 @@ app.include_router(system_router, prefix=settings.api_v1_prefix)
 app.include_router(investigations_router, prefix=settings.api_v1_prefix)
 app.include_router(ingestion_router, prefix=settings.api_v1_prefix)
 app.include_router(forensics_router, prefix=settings.api_v1_prefix)
+app.include_router(reports_router, prefix=settings.api_v1_prefix)
 
 
 @app.get("/", tags=["system"], include_in_schema=False)

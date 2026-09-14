@@ -11,7 +11,7 @@ from app.db.database import get_connection
 from app.geospatial.environment import validate_environment_file
 from app.geospatial.satellite import segment_satellite
 from app.schemas.ingestion import IngestionResponse, SatelliteDetectionResponse
-from app.services.investigations import record_asset
+from app.services.investigations import record_analysis, record_asset
 from app.services.storage import discard_upload, store_upload
 
 router = APIRouter(tags=["real-data ingestion"])
@@ -76,4 +76,6 @@ async def upload_satellite(
     except Exception:
         discard_upload(stored)
         raise
-    return SatelliteDetectionResponse(asset=asset, validation=validation, geojson=geojson, model=model)
+    response = SatelliteDetectionResponse(asset=asset, validation=validation, geojson=geojson, model=model)
+    record_analysis(connection, investigation_id, "satellite_detection", response.model_dump(mode="json"))
+    return response

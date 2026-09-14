@@ -3,6 +3,7 @@ import type {
   AttributionResponse,
   DriftRequest,
   DriftResponse,
+  ForensicReportRequest,
   HealthResponse,
   IngestionResponse,
   InvestigationCreate,
@@ -50,6 +51,29 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(response.status, await parseErrorDetail(response));
   }
   return response.json() as Promise<T>;
+}
+
+async function requestDownload(path: string, payload: ForensicReportRequest): Promise<{ blob: Blob; filename: string }> {
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: "POST",
+    headers: { Accept: path.endsWith(".pdf") ? "application/pdf" : "application/zip", "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw new ApiError(response.status, await parseErrorDetail(response));
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] ?? (path.endsWith(".pdf") ? "seascan-forensic-report.pdf" : "seascan-forensic-package.zip");
+  return { blob: await response.blob(), filename };
+}
+
+function saveDownload(download: { blob: Blob; filename: string }): void {
+  const url = URL.createObjectURL(download.blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = download.filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }
 
 function toJsonBody(payload: unknown): RequestInit {
@@ -149,6 +173,14 @@ function rankSuspects(payload: AttributionRequest): Promise<AttributionResponse>
   return requestJson<AttributionResponse>("/api/attribution/rank", toJsonBody(payload));
 }
 
+async function downloadForensicPdf(payload: ForensicReportRequest): Promise<void> {
+  saveDownload(await requestDownload("/api/reports/forensic.pdf", payload));
+}
+
+async function downloadForensicPackage(payload: ForensicReportRequest): Promise<void> {
+  saveDownload(await requestDownload("/api/reports/package.zip", payload));
+}
+
 export const api = {
   health,
   systemConfig,
@@ -161,4 +193,6 @@ export const api = {
   driftBackward,
   driftForward,
   rankSuspects,
+  downloadForensicPdf,
+  downloadForensicPackage,
 };

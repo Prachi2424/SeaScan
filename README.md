@@ -4,9 +4,9 @@ SeaScan is a real-data maritime forensics platform for oil-spill detection, drif
 
 > **Investigation principle:** the platform ranks *potentially responsible vessels* from evidence. It never asserts legal guilt. No synthetic spill masks, AIS tracks, confidence scores, or vessel rankings are generated.
 
-## Phase 3: real-data forensics
+## Phase 6: forensic reporting and packaging
 
-SeaScan now persists investigation evidence, validates uploads, and uses those files for particle drift reconstruction and explainable AIS candidate ranking.
+SeaScan persists investigation evidence, validates uploads, uses those files for particle drift reconstruction and explainable AIS candidate ranking, and exports immutable forensic report packages.
 
 Implemented API endpoints:
 
@@ -20,6 +20,8 @@ Implemented API endpoints:
 - `POST /api/satellite/upload` — segment a real GeoTIFF/PNG only with configured trained U-Net weights
 - `POST /api/drift/forward` and `POST /api/drift/backward` — particle advection using uploaded timestamped environmental observations
 - `POST /api/attribution/rank` — candidate vessel ranking from uploaded AIS, with all score components returned
+- `POST /api/reports/forensic.pdf` — PDF containing an evidence map, spill metrics, drift summary, candidate rankings, provenance, and legal notices
+- `POST /api/reports/package.zip` — PDF plus a SHA-256 integrity manifest and standalone legal notice
 - `GET /docs` — interactive OpenAPI documentation
 
 ## Repository layout
@@ -96,7 +98,8 @@ The frontend is available at `http://localhost:5173` and the API at `http://loca
 2. **ML and real-data ingestion** — imagery, AIS, and environmental upload validation; U-Net inference interface; persistent investigation records. *(complete)*
 3. **Drift and attribution** — particle advection, AIS reconstruction, behavioral features, and transparent weighted scoring. *(complete)*
 4. **Forensics dashboard** — Leaflet GIS layers, evidence timeline, Mermaid relationship graph, charts, and investigation workflows.
-5. **Deployment hardening** — full Docker runtime, tests, documentation, and model/data operations.
+5. **Deployment hardening** — full Docker runtime, tests, documentation, and model/data operations. *(complete)*
+6. **Forensic report and packaging** — PDF export, evidence-map snapshot, geometry metrics, rankings, legal disclaimers, and SHA-256 manifest. *(complete)*
 
 ## Model provenance (Part A)
 

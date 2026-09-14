@@ -52,6 +52,9 @@ nav { display: grid; gap: 6px; }.nav-item { display: flex; align-items: center; 
 .forensics-workspace__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .forensics-workspace__header h2 { margin: 0; font-size: 22px; color: #f3fbff; }
 .forensics-workspace__header-actions { display: flex; gap: 10px; }
+.forensics-workspace__header-actions { flex-wrap: wrap; justify-content: flex-end; }
+.forensics-workspace__header-actions button:disabled { cursor: wait; opacity: .55; }
+.report-export-error { margin: -8px 0 0; padding: 10px 12px; color: #ffaaaa; background: rgba(165, 47, 66, .12); border: 1px solid rgba(255, 112, 112, .25); border-radius: 8px; font-size: 12px; }
 
 .asset-chip-row { display: flex; flex-wrap: wrap; gap: 10px; }
 .asset-chip { display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; font-size: 12px; color: #90acb9; background: rgba(7, 29, 45, .62); border: 1px solid rgba(140, 200, 220, .18); border-radius: 999px; }
@@ -156,6 +159,8 @@ nav { display: grid; gap: 6px; }.nav-item { display: flex; align-items: center; 
   .suspect-panel { max-height: 460px; }
 }
 @media (max-width: 640px) {
+  .forensics-workspace__header { flex-direction: column; }
+  .forensics-workspace__header-actions { width: 100%; justify-content: flex-start; }
   .controls-card__grid, .controls-card__actions, .modal__bounds-grid { grid-template-columns: 1fr; }
   .investigation-gate__form { flex-direction: column; align-items: stretch; }
 }
