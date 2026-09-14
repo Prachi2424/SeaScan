@@ -1,0 +1,32 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    environment:
+      SEASCAN_ENVIRONMENT: development
+      SEASCAN_CORS_ORIGINS: '["http://localhost:5173"]'
+      SEASCAN_DATABASE_URL: sqlite:///./seascan.db
+      SEASCAN_UPLOAD_DIRECTORY: /data/uploads
+      SEASCAN_PROCESSED_DIRECTORY: /data/processed
+      SEASCAN_MODEL_WEIGHTS_PATH: ${SEASCAN_MODEL_WEIGHTS_PATH:-}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/data
+
+  frontend:
+    image: node:24-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    depends_on:
+      - backend
+
+volumes:
+  frontend_node_modules:

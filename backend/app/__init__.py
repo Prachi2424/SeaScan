@@ -1,0 +1,1 @@
+"""SeaScan FastAPI application package."""
