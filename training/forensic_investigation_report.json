@@ -1,0 +1,30 @@
+{
+    "case_id": "SIH26143-CASE-001",
+    "sar_source": "00259.tif",
+    "slick_centroid": {
+        "latitude": 27.014652781186292,
+        "longitude": -90.25723569949267
+    },
+    "slick_area_sqkm": 5.12,
+    "estimated_release_utc": "2026-09-25 06:14:59.228449",
+    "origin_uncertainty_km": 1.4401517096999157,
+    "candidate_vessels": [
+        {
+            "MMSI": 367412340,
+            "VesselName": "CARRIER_ALPHA",
+            "VesselType": "Tanker",
+            "CPA_km": 1.2,
+            "Speed_knots": 11.2,
+            "Risk_Score": 88.5
+        },
+        {
+            "MMSI": 368999812,
+            "VesselName": "BULK_BRAVO",
+            "VesselType": "Cargo",
+            "CPA_km": 3.8,
+            "Speed_knots": 14.1,
+            "Risk_Score": 61.0
+        }
+    ],
+    "report_generated_utc": "2026-09-25T12:14:59.250254"
+}
