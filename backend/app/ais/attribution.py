@@ -68,7 +68,18 @@ def _score_vessel(local, history, origin_latitude: float, origin_longitude: floa
     total = sum(breakdown[key] * SCORE_WEIGHTS[key] for key in SCORE_WEIGHTS)
     coordinates = [[float(row.longitude), float(row.latitude)] for row in history.itertuples()]
     geometry = {"type": "LineString", "coordinates": coordinates} if len(coordinates) > 1 else {"type": "Point", "coordinates": coordinates[0]}
-    return {"mmsi": str(int(local.mmsi.iloc[0])), "vessel_type": vessel_type, "evidence_score": round(total, 6), "score_breakdown": breakdown, "evidence": {"closest_observed_distance_km": round(minimum_distance, 4), "positions_in_time_window": int(len(local)), "behavior": behavior_evidence, "maximum_ais_gap_minutes": round(maximum_gap, 3), "score_note": "Evidence-weighted prioritization only. It is not a legal determination of responsibility."}, "track_geojson": {"type": "Feature", "geometry": geometry, "properties": {"mmsi": str(int(local.mmsi.iloc[0])), "position_count": len(coordinates)}}}
+    track_distances = _haversine(history.latitude.to_numpy(), history.longitude.to_numpy(), origin_latitude, origin_longitude)
+    positions = []
+    for row, distance in zip(history.itertuples(), track_distances, strict=True):
+        positions.append({
+            "timestamp": row.timestamp.isoformat(),
+            "latitude": float(row.latitude),
+            "longitude": float(row.longitude),
+            "distance_to_origin_km": round(float(distance), 4),
+            "speed_knots": None if not np.isfinite(row.speed_knots) else round(float(row.speed_knots), 3),
+            "course_degrees": None if not np.isfinite(row.course_degrees) else round(float(row.course_degrees), 3),
+        })
+    return {"mmsi": str(int(local.mmsi.iloc[0])), "vessel_type": vessel_type, "evidence_score": round(total, 6), "score_breakdown": breakdown, "evidence": {"closest_observed_distance_km": round(minimum_distance, 4), "positions_in_time_window": int(len(local)), "behavior": behavior_evidence, "maximum_ais_gap_minutes": round(maximum_gap, 3), "score_note": "Evidence-weighted prioritization only. It is not a legal determination of responsibility."}, "track_geojson": {"type": "Feature", "geometry": geometry, "properties": {"mmsi": str(int(local.mmsi.iloc[0])), "position_count": len(coordinates), "positions": positions}}}
 
 
 def _behavior_features(history):

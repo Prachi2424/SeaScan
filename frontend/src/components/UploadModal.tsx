@@ -3,7 +3,7 @@ import type { FormEvent } from "react";
 import { Anchor, Satellite, Waves, X } from "lucide-react";
 
 import { api, ApiError } from "../lib/api";
-import type { IngestionResponse, SatelliteDetectionResponse } from "../types/api";
+import type { IngestionResponse, SatelliteDetectionResponse, SatellitePresentation } from "../types/api";
 
 type UploadTab = "satellite" | "ais" | "environment";
 
@@ -17,7 +17,7 @@ interface UploadModalProps {
   investigationId: string;
   open: boolean;
   onClose: () => void;
-  onSatelliteUploaded: (response: SatelliteDetectionResponse) => void;
+  onSatelliteUploaded: (response: SatelliteDetectionResponse, presentation: SatellitePresentation) => void;
   onAisUploaded: (response: IngestionResponse) => void;
   onEnvironmentUploaded: (response: IngestionResponse) => void;
   acceptedFormats: AcceptedFormats;
@@ -56,6 +56,7 @@ export function UploadModal({
   const [threshold, setThreshold] = useState(0.5);
   const [useManualBounds, setUseManualBounds] = useState(false);
   const [bounds, setBounds] = useState({ west: "", south: "", east: "", north: "" });
+  const [groundTruthFile, setGroundTruthFile] = useState<File | null>(null);
 
   if (!open) return null;
 
@@ -87,7 +88,15 @@ export function UploadModal({
           manualBounds = parsed;
         }
         const response = await api.uploadSatellite(investigationId, file, { threshold, bounds: manualBounds });
-        onSatelliteUploaded(response);
+        const detectedBounds = manualBounds
+          ? ([manualBounds.west, manualBounds.south, manualBounds.east, manualBounds.north] as [number, number, number, number])
+          : null;
+        onSatelliteUploaded(response, {
+          imageUrl: file.type === "image/png" ? URL.createObjectURL(file) : null,
+          groundTruthUrl: groundTruthFile ? URL.createObjectURL(groundTruthFile) : null,
+          bounds: detectedBounds,
+          filename: file.name,
+        });
         updateTab(tab, {
           submitting: false,
           successMessage: `Segmented ${response.validation.component_count as number} spill component(s) from the real raster.`,
@@ -180,6 +189,14 @@ export function UploadModal({
                       ))}
                     </div>
                   )}
+                  <label className="modal__file-label">
+                    <span>Optional ground-truth mask (validation cases only)</span>
+                    <input
+                      type="file"
+                      accept="image/png"
+                      onChange={(event) => setGroundTruthFile(event.target.files?.[0] ?? null)}
+                    />
+                  </label>
                 </>
               )}
 

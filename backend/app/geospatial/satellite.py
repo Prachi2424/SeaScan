@@ -36,7 +36,7 @@ def segment_satellite(
 def _read_raster(file_path: Path, bounds: tuple[float, float, float, float] | None):
     import numpy as np
     from PIL import Image
-    from rasterio import Affine
+    from rasterio.transform import from_bounds
 
     suffix = file_path.suffix.lower()
     if suffix == ".png":
@@ -46,10 +46,11 @@ def _read_raster(file_path: Path, bounds: tuple[float, float, float, float] | No
         height, width = array.shape[1:]
         if bounds:
             west, south, east, north = bounds
-            if not west < east or not south < north:
-                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="PNG bounds must have west < east and south < north.")
-            return array, Affine.from_gdal((east - west) / width, 0, west, 0, -(north - south) / height, north), "EPSG:4326", {"source_format": "png", "coordinate_reference": "EPSG:4326", "width": width, "height": height, "band_count": 3}
-        return array, Affine.identity(), None, {"source_format": "png", "coordinate_reference": "image_pixels", "width": width, "height": height, "band_count": 3}
+            if not all(math.isfinite(value) for value in bounds) or not (-180 <= west < east <= 180 and -90 <= south < north <= 90):
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="PNG bounds must be valid geographic coordinates with west < east and south < north.")
+            transform = from_bounds(west, south, east, north, width, height)
+            return array, transform, "EPSG:4326", {"source_format": "png", "coordinate_reference": "EPSG:4326", "width": width, "height": height, "band_count": 3}
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="PNG satellite evidence requires manual west, south, east, and north geographic bounds.")
 
     try:
         import rasterio

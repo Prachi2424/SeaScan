@@ -12,6 +12,7 @@ import type {
   IngestionResponse,
   InvestigationSummary,
   SatelliteDetectionResponse,
+  SatellitePresentation,
 } from "../types/api";
 
 import { AttributionControls } from "./AttributionControls";
@@ -19,6 +20,7 @@ import { DriftControls } from "./DriftControls";
 import { IntelligenceFlowGraph } from "./IntelligenceFlowGraph";
 import type { FlowStageKey } from "./IntelligenceFlowGraph";
 import { MaritimeMap } from "./MaritimeMap";
+import { ForensicStory } from "./ForensicStory";
 import { SuspectVesselPanel } from "./SuspectVesselPanel";
 import { UploadModal } from "./UploadModal";
 
@@ -60,6 +62,7 @@ export function ForensicsWorkspace({ acceptedFormats }: ForensicsWorkspaceProps)
 
   const [uploadOpen, setUploadOpen] = useState(false);
   const [satellite, setSatellite] = useState<SatelliteDetectionResponse | null>(null);
+  const [satellitePresentation, setSatellitePresentation] = useState<SatellitePresentation | null>(null);
   const [aisAsset, setAisAsset] = useState<IngestionResponse | null>(null);
   const [environmentAsset, setEnvironmentAsset] = useState<IngestionResponse | null>(null);
 
@@ -95,7 +98,10 @@ export function ForensicsWorkspace({ acceptedFormats }: ForensicsWorkspaceProps)
   }
 
   function resetPipelineState() {
+    if (satellitePresentation?.imageUrl) URL.revokeObjectURL(satellitePresentation.imageUrl);
+    if (satellitePresentation?.groundTruthUrl) URL.revokeObjectURL(satellitePresentation.groundTruthUrl);
     setSatellite(null);
+    setSatellitePresentation(null);
     setAisAsset(null);
     setEnvironmentAsset(null);
     setBackwardDrift(null);
@@ -316,7 +322,12 @@ export function ForensicsWorkspace({ acceptedFormats }: ForensicsWorkspaceProps)
 
       <div className="dashboard-grid">
         <MaritimeMap
-          satellite={satellite ? { geojson: satellite.geojson, bounds: null } : null}
+          satellite={satellite ? {
+            geojson: satellite.geojson,
+            bounds: satellitePresentation?.bounds ?? null,
+            imageUrl: satellitePresentation?.imageUrl ?? null,
+            groundTruthUrl: satellitePresentation?.groundTruthUrl ?? null,
+          } : null}
           backwardDrift={backwardDrift}
           forwardDrift={forwardDrift}
           candidates={attribution?.candidates ?? []}
@@ -332,12 +343,27 @@ export function ForensicsWorkspace({ acceptedFormats }: ForensicsWorkspaceProps)
         />
       </div>
 
+      <ForensicStory
+        investigation={investigation}
+        satellite={satellite}
+        environmentAsset={environmentAsset?.asset ?? null}
+        aisAsset={aisAsset?.asset ?? null}
+        backwardDrift={backwardDrift}
+        forwardDrift={forwardDrift}
+        candidates={attribution?.candidates ?? []}
+      />
+
       <UploadModal
         investigationId={investigation.id}
         open={uploadOpen}
         onClose={() => setUploadOpen(false)}
         acceptedFormats={acceptedFormats}
-        onSatelliteUploaded={setSatellite}
+        onSatelliteUploaded={(response, presentation) => {
+          if (satellitePresentation?.imageUrl) URL.revokeObjectURL(satellitePresentation.imageUrl);
+          if (satellitePresentation?.groundTruthUrl) URL.revokeObjectURL(satellitePresentation.groundTruthUrl);
+          setSatellite(response);
+          setSatellitePresentation(presentation);
+        }}
         onAisUploaded={setAisAsset}
         onEnvironmentUploaded={setEnvironmentAsset}
       />

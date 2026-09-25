@@ -7,6 +7,13 @@
 export type LngLat = [number, number];
 export type LatLng = [number, number];
 
+export interface GeometryMetrics {
+  areaKm2: number;
+  perimeterKm: number;
+  orientationDegrees: number | null;
+  centroid: LatLng | null;
+}
+
 function eachRing(geometry: GeoJSON.Geometry, visit: (ring: GeoJSON.Position[]) => void): void {
   switch (geometry.type) {
     case "Point":
@@ -171,4 +178,59 @@ export function scoreToColor(score: number): string {
   const clamped = Math.max(0, Math.min(100, score));
   const hue = 120 - (clamped / 100) * 120; // 120 = green, 0 = red
   return `hsl(${hue.toFixed(0)}, 82%, 52%)`;
+}
+
+function haversineKm(a: GeoJSON.Position, b: GeoJSON.Position): number {
+  const radius = 6371.0088;
+  const [lng1, lat1] = a.map((value) => (value * Math.PI) / 180);
+  const [lng2, lat2] = b.map((value) => (value * Math.PI) / 180);
+  const dLat = lat2 - lat1;
+  const dLng = lng2 - lng1;
+  const value = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return radius * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
+}
+
+function polygonAreaKm2(ring: GeoJSON.Position[]): number {
+  if (ring.length < 3) return 0;
+  const meanLatitude = ring.reduce((sum, point) => sum + point[1], 0) / ring.length;
+  const xScale = 111.32 * Math.cos((meanLatitude * Math.PI) / 180);
+  const yScale = 110.574;
+  let twiceArea = 0;
+  for (let index = 0; index < ring.length - 1; index += 1) {
+    const [lng1, lat1] = ring[index];
+    const [lng2, lat2] = ring[index + 1];
+    twiceArea += lng1 * xScale * lat2 * yScale - lng2 * xScale * lat1 * yScale;
+  }
+  return Math.abs(twiceArea) / 2;
+}
+
+/** Approximate geodesic spill metrics suitable for the dashboard summary. */
+export function computeGeometryMetrics(input: GeoJSON.FeatureCollection | null | undefined): GeometryMetrics {
+  const rings: GeoJSON.Position[][] = [];
+  input?.features.forEach((feature) => {
+    if (feature.geometry.type === "Polygon") rings.push(feature.geometry.coordinates[0]);
+    if (feature.geometry.type === "MultiPolygon") feature.geometry.coordinates.forEach((polygon) => rings.push(polygon[0]));
+  });
+  let areaKm2 = 0;
+  let perimeterKm = 0;
+  const points: GeoJSON.Position[] = [];
+  rings.forEach((ring) => {
+    areaKm2 += polygonAreaKm2(ring);
+    points.push(...ring);
+    for (let index = 0; index < ring.length - 1; index += 1) perimeterKm += haversineKm(ring[index], ring[index + 1]);
+  });
+  const centroid = computeCentroid(input);
+  let orientationDegrees: number | null = null;
+  if (points.length >= 2 && centroid) {
+    const [centerLat, centerLng] = centroid;
+    const projected = points.map(([lng, lat]) => [
+      (lng - centerLng) * Math.cos((centerLat * Math.PI) / 180),
+      lat - centerLat,
+    ]);
+    const xx = projected.reduce((sum, [x]) => sum + x * x, 0) / projected.length;
+    const yy = projected.reduce((sum, [, y]) => sum + y * y, 0) / projected.length;
+    const xy = projected.reduce((sum, [x, y]) => sum + x * y, 0) / projected.length;
+    orientationDegrees = ((0.5 * Math.atan2(2 * xy, xx - yy) * 180) / Math.PI + 360) % 180;
+  }
+  return { areaKm2, perimeterKm, orientationDegrees, centroid };
 }

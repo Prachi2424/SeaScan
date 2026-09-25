@@ -64,6 +64,13 @@ export interface SatelliteDetectionResponse extends IngestionResponse {
   model: Record<string, unknown>;
 }
 
+export interface SatellitePresentation {
+  imageUrl: string | null;
+  groundTruthUrl: string | null;
+  bounds: [number, number, number, number] | null;
+  filename: string;
+}
+
 // ---------------------------------------------------------------------------
 // Forensics — drift
 // ---------------------------------------------------------------------------
@@ -133,6 +140,15 @@ export interface CandidateVessel {
   score_breakdown: ScoreBreakdown;
   evidence: CandidateEvidence;
   track_geojson: GeoJSON.Feature;
+}
+
+export interface VesselTrackPosition {
+  timestamp: string;
+  latitude: number;
+  longitude: number;
+  distance_to_origin_km: number;
+  speed_knots: number | null;
+  course_degrees: number | null;
 }
 
 export interface AttributionResponse {
