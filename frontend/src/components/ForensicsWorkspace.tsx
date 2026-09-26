@@ -28,6 +28,7 @@ import { EvidenceProvenancePanel } from "./EvidenceProvenancePanel";
 import { ReleaseScenarios } from "./ReleaseScenarios";
 import { AnalysisWorkflow } from "./AnalysisWorkflow";
 import { UploadModal } from "./UploadModal";
+import { FullInvestigationWorkflow } from "./FullInvestigationWorkflow";
 
 interface ForensicsWorkspaceProps {
   acceptedFormats: {
@@ -95,6 +96,8 @@ export function ForensicsWorkspace({ acceptedFormats, userRole }: ForensicsWorks
   const [scenarios, setScenarios] = useState<ReleaseScenarioResponse | null>(null);
   const [workflowBusy, setWorkflowBusy] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
+  const [verificationMessage, setVerificationMessage] = useState<string | null>(null);
+  const [fullWorkflowOpen, setFullWorkflowOpen] = useState(false);
 
 
   async function loadInvestigations() {
@@ -308,7 +311,8 @@ export function ForensicsWorkspace({ acceptedFormats, userRole }: ForensicsWorks
             </label>
           )}
 
-          {canManageEvidence ? <form onSubmit={(event) => void handleCreateInvestigation(event)} className="investigation-gate__form">
+          {canManageEvidence ? <>
+          <form onSubmit={(event) => void handleCreateInvestigation(event)} className="investigation-gate__form">
             <label>
               <span>New investigation title</span>
               <input
@@ -323,9 +327,12 @@ export function ForensicsWorkspace({ acceptedFormats, userRole }: ForensicsWorks
             <button type="submit" disabled={creating}>
               {creating ? "Creating…" : "Start investigation"}
             </button>
-          </form> : <p className="investigation-gate__status">Analysts can open and analyse existing investigations. An investigator or administrator creates new cases and uploads evidence.</p>}
+          </form>
+          <button type="button" className="primary-button" onClick={() => setFullWorkflowOpen(true)}>Run full investigation</button>
+          </> : <p className="investigation-gate__status">Analysts can open and analyse existing investigations. An investigator or administrator creates new cases and uploads evidence.</p>}
           {createError && <p className="investigation-gate__status investigation-gate__status--error">{createError}</p>}
         </div>
+        <FullInvestigationWorkflow open={fullWorkflowOpen} onClose={() => setFullWorkflowOpen(false)} onComplete={(id) => { setFullWorkflowOpen(false); void loadInvestigations(); void handleSelectInvestigation(id); }} />
       </section>
     );
   }
@@ -344,16 +351,36 @@ export function ForensicsWorkspace({ acceptedFormats, userRole }: ForensicsWorks
           <button type="button" className="secondary-button" onClick={() => void handleReportDownload("package")} disabled={scenarioBusy || workflowBusy || reportLoading !== null}>
             <FileArchive size={16} /> {reportLoading === "package" ? "Packaging…" : "Evidence package"}
           </button>
+          <label className="secondary-button package-verification-button">
+            Verify package
+            <input
+              type="file"
+              accept="application/zip,.zip"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (!file) return;
+                setVerificationMessage("Verifying package…");
+                void api.verifyEvidencePackage(file)
+                  .then((result) => setVerificationMessage(result.valid && result.trusted
+                    ? `Valid trusted signature · key ${result.signing_key_id?.slice(0, 16)}…`
+                    : `Verification failed: ${result.errors.join(" ")}`))
+                  .catch((error) => setVerificationMessage(`Verification failed: ${describeError(error)}`));
+                event.target.value = "";
+              }}
+            />
+          </label>
           <button type="button" className="secondary-button" disabled={scenarioBusy || workflowBusy || backwardLoading || forwardLoading || attributionLoading || reportLoading !== null} onClick={() => { rememberCase(null); setInvestigation(null); resetPipelineState(); void loadInvestigations(); }}>
             Switch investigation
           </button>
           {canManageEvidence && <button type="button" className="primary-button" disabled={scenarioBusy || workflowBusy} onClick={() => setUploadOpen(true)}>
             <UploadCloud size={16} /> Upload evidence
           </button>}
+          {canManageEvidence && <button type="button" className="primary-button" disabled={scenarioBusy || workflowBusy} onClick={() => setFullWorkflowOpen(true)}>Run full investigation</button>}
         </div>
       </header>
 
       {reportError && <p className="report-export-error" role="alert">Report export failed: {reportError}</p>}
+      {verificationMessage && <p className="report-export-status" role="status">{verificationMessage}</p>}
 
       <div className="asset-chip-row" role="list">
         <span role="listitem" className={`asset-chip ${satellite ? "asset-chip--ready" : ""}`}>
@@ -465,6 +492,7 @@ export function ForensicsWorkspace({ acceptedFormats, userRole }: ForensicsWorks
         onAisUploaded={(response) => { setAisAsset(response); setEvidenceAssets((assets) => [response.asset, ...assets]); }}
         onEnvironmentUploaded={(response) => { setEnvironmentAsset(response); setEvidenceAssets((assets) => [response.asset, ...assets]); }}
       />
+      <FullInvestigationWorkflow open={fullWorkflowOpen} onClose={() => setFullWorkflowOpen(false)} onComplete={(id) => { setFullWorkflowOpen(false); void loadInvestigations(); void handleSelectInvestigation(id); }} />
     </section>
   );
 }

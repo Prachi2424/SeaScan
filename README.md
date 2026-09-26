@@ -147,3 +147,15 @@ Satellite uploads now use 256-pixel tiles with 64-pixel overlap and weighted pro
 Limits: 16,777,216 pixels for GeoTIFF, 4,194,304 for PNG, and 10,000 output components, in addition to the upload byte limit. PNG decoding and final probability/mask arrays still use scene-sized memory. Crop scenes larger than these limits. Tiling reduces model activation memory but may change large-scene predictions; independent accuracy evaluation remains necessary.
 
 Regression coverage: `backend/tests/test_tiled_inference.py`.
+
+## Signed evidence packages
+
+Set `SEASCAN_SIGNING_PRIVATE_KEY_PATH` to an Ed25519 private key stored outside the repository and set `SEASCAN_SIGNING_IDENTITY` to the signing authority name. Evidence-package exports contain the PDF, canonical manifest, Ed25519 signature, public key, and a self-signed public-key certificate. The configured public-key fingerprint is the local trust anchor.
+
+Verify a package in the application with **Verify package**, or from the project root:
+
+```bash
+PYTHONPATH=backend python -m app.verify_package evidence-package.zip --trusted-key-id <trusted-public-key-sha256>
+```
+
+This makes changes cryptographically detectable. It does not make files immutable. The bundled certificate is self-signed; production deployment requires independent distribution of the trusted key fingerprint or a certificate issued by an accepted authority. Trusted timestamping and external transparency logging are separate integrations.

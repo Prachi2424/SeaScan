@@ -114,6 +114,13 @@ export interface SatellitePresentation {
   filename: string;
 }
 
+export interface PackageVerificationResponse {
+  valid: boolean;
+  trusted: boolean;
+  signing_key_id: string | null;
+  errors: string[];
+}
+
 // ---------------------------------------------------------------------------
 // Forensics — drift
 // ---------------------------------------------------------------------------
@@ -213,7 +220,7 @@ export interface AttributionResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 6 — immutable forensic report export
+// Phase 6 — forensic report export with SHA-256 integrity hash
 // ---------------------------------------------------------------------------
 
 export interface ForensicReportRequest {

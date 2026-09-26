@@ -39,7 +39,7 @@ def test_provenance_survives_reopen_and_report_manifest(client):
     assert result.status_code==200
     with zipfile.ZipFile(io.BytesIO(result.content)) as archive:
         manifest=json.loads(archive.read('manifest.json'))
-    assert manifest['schema_version']=='1.1'
+    assert manifest['schema_version']=='1.2'
     assert manifest['evidence_assets'][0]['provenance']==declared
     assert manifest['evidence_assets'][0]['processing_steps']
 

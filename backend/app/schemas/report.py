@@ -32,3 +32,6 @@ class ReportPackageManifest(BaseModel):
     investigation_id: str
     evidence_assets: list[dict[str, object]]
     legal_notice: str
+    signature_algorithm: str | None = None
+    signer_identity: str | None = None
+    signing_key_id: str | None = None

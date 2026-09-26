@@ -371,5 +371,13 @@ nav { display: grid; gap: 6px; }.nav-item { display: flex; align-items: center; 
 .map-context-controls { position: absolute; top: 12px; left: 60px; z-index: 1000; display: flex; gap: 6px; flex-wrap: wrap; max-width: calc(100% - 125px); }
 .map-context-controls button { padding: 7px 10px; border: 1px solid #55717b; border-radius: 6px; background: #10232d; color: #fff; cursor: pointer; font-size: 12px; }
 .map-context-controls button:disabled { opacity: .5; cursor: default; }
+.package-verification-button { position: relative; overflow: hidden; }
+.package-verification-button input { position: absolute; inline-size: 1px; block-size: 1px; opacity: 0; pointer-events: none; }
+.full-workflow-modal { max-width: 880px; }
+.full-workflow-progress { display: grid; gap: 7px; margin: 14px 0; padding: 0; list-style: none; }
+.full-workflow-progress li { display: flex; justify-content: space-between; gap: 18px; padding: 9px 12px; border: 1px solid #294955; border-radius: 8px; text-transform: capitalize; }
+.full-workflow-progress li[data-status="running"] { border-color: #56d5df; }
+.full-workflow-progress li[data-status="complete"] strong { color: #78dda5; }
+.full-workflow-progress li[data-status="failed"] strong { color: #ff7c8f; }
 
 .workflow-fields { border: 0; padding: 0; margin: 0; min-width: 0; }

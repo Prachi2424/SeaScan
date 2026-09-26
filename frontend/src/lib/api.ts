@@ -12,6 +12,7 @@ import type {
   InvestigationCreate,
   InvestigationDetail,
   InvestigationSummary,
+  PackageVerificationResponse,
   SatelliteDetectionResponse,
   SystemConfigResponse,
   AuthUser,
@@ -180,6 +181,12 @@ function uploadEnvironment(investigationId: string, file: File, provenance?: Evi
   return requestJson<IngestionResponse>("/api/environment/upload", { method: "POST", body: form });
 }
 
+function verifyEvidencePackage(file: File): Promise<PackageVerificationResponse> {
+  const form = new FormData();
+  form.append("file", file);
+  return requestJson<PackageVerificationResponse>("/api/reports/verify-package", { method: "POST", body: form });
+}
+
 interface SatelliteUploadOptions {
   provenance?: EvidenceProvenance;
   threshold?: number;
@@ -250,6 +257,7 @@ export const api = {
   getInvestigation,
   uploadAis,
   uploadEnvironment,
+  verifyEvidencePackage,
   uploadSatellite,
   driftBackward,
   driftForward,
