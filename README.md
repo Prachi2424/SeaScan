@@ -49,7 +49,7 @@ Our solution breaks down the investigation into three automated phases:
 
 ## 🏗️ System Architecture & Data Flow
 
-![SeaScan Technical Architecture](website_screenshots/technical_Architecture.png)
+![SeaScan Technical Architecture](website_screenshots/technical_architecture.png)
 
 The SeaScan processing engine operates as a four-stage pipeline:
 
