@@ -5,6 +5,8 @@ import { CornerUpLeft, CornerUpRight, LocateFixed } from "lucide-react";
 import type { DriftRequest, DriftResponse, IngestionResponse } from "../types/api";
 
 interface DriftControlsProps {
+  savedBackward?: DriftResponse | null;
+  savedForward?: DriftResponse | null;
   environmentAsset: IngestionResponse | null;
   spillCentroid: [number, number] | null; // [lat, lng]
   onRunBackward: (payload: DriftRequest) => void;
@@ -14,6 +16,7 @@ interface DriftControlsProps {
   backwardError: string | null;
   forwardError: string | null;
   backwardResult: DriftResponse | null;
+  forwardResult?: DriftResponse | null;
 }
 
 function nowForDatetimeLocal(): string {
@@ -28,6 +31,8 @@ function toIsoFromLocalInput(value: string): string {
 }
 
 export function DriftControls({
+  savedBackward,
+  savedForward,
   environmentAsset,
   spillCentroid,
   onRunBackward,
@@ -37,16 +42,22 @@ export function DriftControls({
   backwardError,
   forwardError,
   backwardResult,
+  forwardResult,
 }: DriftControlsProps) {
-  const [latitude, setLatitude] = useState(spillCentroid ? String(spillCentroid[0]) : "");
-  const [longitude, setLongitude] = useState(spillCentroid ? String(spillCentroid[1]) : "");
-  const [observedAt, setObservedAt] = useState(nowForDatetimeLocal());
-  const [backwardHours, setBackwardHours] = useState(24);
-  const [forwardHours, setForwardHours] = useState(48);
-  const [particleCount, setParticleCount] = useState(200);
-  const [initialSpreadMeters, setInitialSpreadMeters] = useState(250);
-  const [windageFactor, setWindageFactor] = useState(0.03);
-  const [stepMinutes, setStepMinutes] = useState(30);
+  const saved = (savedBackward?.parameters ?? savedForward?.parameters ?? savedBackward?.seed ?? savedForward?.seed ?? {}) as Partial<DriftRequest>;
+  const [latitude, setLatitude] = useState(saved.latitude !== undefined ? String(saved.latitude) : spillCentroid ? String(spillCentroid[0]) : "");
+  const [longitude, setLongitude] = useState(saved.longitude !== undefined ? String(saved.longitude) : spillCentroid ? String(spillCentroid[1]) : "");
+  const [observedAt, setObservedAt] = useState(() => {
+    if (!saved.observed_at) return nowForDatetimeLocal();
+    const date = new Date(saved.observed_at);
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  });
+  const [backwardHours, setBackwardHours] = useState(savedBackward?.parameters?.duration_hours ?? Number(savedBackward?.seed.duration_hours ?? 24));
+  const [forwardHours, setForwardHours] = useState(savedForward?.parameters?.duration_hours ?? Number(savedForward?.seed.duration_hours ?? 48));
+  const [particleCount, setParticleCount] = useState(saved.particle_count ?? 200);
+  const [initialSpreadMeters, setInitialSpreadMeters] = useState(saved.initial_spread_meters ?? 250);
+  const [windageFactor, setWindageFactor] = useState(saved.windage_factor ?? 0.03);
+  const [stepMinutes, setStepMinutes] = useState(saved.step_minutes ?? 30);
 
   const disabled = !environmentAsset;
 
@@ -151,6 +162,13 @@ export function DriftControls({
           {forwardError && <p className="controls-card__error">{forwardError}</p>}
         </form>
       </div>
+
+      {[backwardResult, forwardResult].filter((result): result is DriftResponse => Boolean(result)).map((result) => (
+        <div key={result.direction} role="status">
+          <p>{result.direction === "backward" ? "Hindcast" : "Forecast"}: {String(result.sampling.method)}. Maximum distance to observations: {String(result.sampling.maximum_nearest_observation_distance_km ?? "Not recorded")} km.</p>
+          {Array.isArray(result.sampling.warnings) && result.sampling.warnings.map((warning, index) => <p key={index} className="controls-card__notice">{String(warning)}</p>)}
+        </div>
+      ))}
 
       {backwardResult && (
         <p className="controls-card__result">

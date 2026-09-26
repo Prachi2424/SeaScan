@@ -109,8 +109,9 @@ def get_asset(connection: sqlite3.Connection, asset_id: str, expected_type: str)
 
 def record_analysis(connection: sqlite3.Connection, investigation_id: str, result_type: str, payload: dict[str, object]) -> None:
     get_investigation(connection, investigation_id)
+    table = "release_scenario_results" if result_type == "release_scenarios" else "analysis_results"
     connection.execute(
-        "INSERT INTO analysis_results (id, investigation_id, result_type, payload_json, created_at) VALUES (?, ?, ?, ?, ?)",
+        f"INSERT INTO {table} (id, investigation_id, result_type, payload_json, created_at) VALUES (?, ?, ?, ?, ?)",
         (str(uuid.uuid4()), investigation_id, result_type, json.dumps(payload), _now()),
     )
     connection.execute("UPDATE investigations SET updated_at = ? WHERE id = ?", (_now(), investigation_id))
@@ -123,6 +124,7 @@ def latest_analysis_results(connection: sqlite3.Connection, investigation_id: st
            WHERE investigation_id = ? ORDER BY created_at DESC""",
         (investigation_id,),
     ).fetchall()
+    rows += connection.execute("SELECT result_type, payload_json FROM release_scenario_results WHERE investigation_id = ? ORDER BY created_at DESC", (investigation_id,)).fetchall()
     results: dict[str, dict[str, object]] = {}
     for row in rows:
         if row["result_type"] not in results:

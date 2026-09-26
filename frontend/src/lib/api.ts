@@ -1,4 +1,7 @@
 import type {
+  ReleaseScenarioRequest,
+  ReleaseScenarioResponse,
+  EvidenceProvenance,
   AttributionRequest,
   AttributionResponse,
   DriftRequest,
@@ -116,22 +119,26 @@ function getInvestigation(investigationId: string): Promise<InvestigationDetail>
 // Ingestion — real file uploads only, no mock endpoints
 // ---------------------------------------------------------------------------
 
-function uploadAis(investigationId: string, file: File): Promise<IngestionResponse> {
+function uploadAis(investigationId: string, file: File, provenance?: EvidenceProvenance): Promise<IngestionResponse> {
   const form = new FormData();
   form.append("investigation_id", investigationId);
   form.append("file", file);
+  form.append("provenance", JSON.stringify(provenance ?? {}));
   return requestJson<IngestionResponse>("/api/ais/upload", { method: "POST", body: form });
 }
 
-function uploadEnvironment(investigationId: string, file: File): Promise<IngestionResponse> {
+function uploadEnvironment(investigationId: string, file: File, provenance?: EvidenceProvenance): Promise<IngestionResponse> {
   const form = new FormData();
   form.append("investigation_id", investigationId);
   form.append("file", file);
+  form.append("provenance", JSON.stringify(provenance ?? {}));
   return requestJson<IngestionResponse>("/api/environment/upload", { method: "POST", body: form });
 }
 
 interface SatelliteUploadOptions {
+  provenance?: EvidenceProvenance;
   threshold?: number;
+  minComponentPixels?: number;
   bounds?: { west: number; south: number; east: number; north: number };
 }
 
@@ -143,7 +150,9 @@ function uploadSatellite(
   const form = new FormData();
   form.append("investigation_id", investigationId);
   form.append("file", file);
+  form.append("provenance", JSON.stringify(options.provenance ?? {}));
   form.append("threshold", String(options.threshold ?? 0.5));
+  form.append("min_component_pixels", String(options.minComponentPixels ?? 0));
   if (options.bounds) {
     form.append("west", String(options.bounds.west));
     form.append("south", String(options.bounds.south));
@@ -182,6 +191,7 @@ async function downloadForensicPackage(payload: ForensicReportRequest): Promise<
 }
 
 export const api = {
+  releaseScenarios: (payload: ReleaseScenarioRequest) => requestJson<ReleaseScenarioResponse>("/api/release-scenarios", toJsonBody(payload)),
   health,
   systemConfig,
   createInvestigation,

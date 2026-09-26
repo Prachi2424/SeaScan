@@ -83,7 +83,7 @@ export function SuspectVesselPanel({ attribution, isLoading, error, selectedMmsi
                     <dl className="suspect-card__evidence">
                       <div>
                         <dt>Closest approach</dt>
-                        <dd>{candidate.evidence.closest_observed_distance_km.toFixed(2)} km</dd>
+                        <dd>{(candidate.evidence.closest_approach_distance_km ?? candidate.evidence.closest_observed_distance_km)?.toFixed(2) ?? "n/a"} km</dd>
                       </div>
                       <div>
                         <dt>Positions in window</dt>
@@ -91,9 +91,14 @@ export function SuspectVesselPanel({ attribution, isLoading, error, selectedMmsi
                       </div>
                       <div>
                         <dt>Max AIS gap</dt>
-                        <dd>{Number.isFinite(candidate.evidence.maximum_ais_gap_minutes) ? `${candidate.evidence.maximum_ais_gap_minutes.toFixed(0)} min` : "n/a"}</dd>
+                        <dd>{Number.isFinite(candidate.evidence.maximum_ais_gap_minutes) ? `${candidate.evidence.maximum_ais_gap_minutes?.toFixed(0)} min` : "n/a"}</dd>
                       </div>
                     </dl>
+                    {candidate.evidence.closest_approach_at && <p>Closest approach: {candidate.evidence.closest_approach_at} · {candidate.evidence.closest_approach_interpolated ? "interpolated" : "observed"}</p>}
+                    {candidate.evidence.origin_region_intersection != null && <p>Hindcast region intersection: {candidate.evidence.origin_region_intersection ? "Yes" : "No"}</p>}
+                    {candidate.evidence.heading_alignment != null && <p>Drift-heading alignment: {Math.round(candidate.evidence.heading_alignment * 100)} / 100 (heuristic)</p>}
+                    {candidate.evidence.warnings?.map((warning) => <p key={warning}>{warning}</p>)}
+
                   </button>
                 </li>
               );
@@ -102,6 +107,8 @@ export function SuspectVesselPanel({ attribution, isLoading, error, selectedMmsi
           <p className="suspect-panel__disclaimer">{attribution.disclaimer}</p>
         </>
       )}
+
+      {!!attribution?.excluded_vessels?.length && <details><summary>Excluded vessels ({attribution.excluded_vessels.length})</summary>{attribution.excluded_vessels.map((vessel) => <p key={vessel.mmsi}>MMSI {vessel.mmsi}: {vessel.reason}</p>)}</details>}
 
       {!isLoading && !error && !attribution && (
         <p className="suspect-panel__status">Run AIS attribution to rank candidate vessels once a spill origin has been estimated.</p>

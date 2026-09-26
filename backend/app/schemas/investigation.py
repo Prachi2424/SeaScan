@@ -32,3 +32,4 @@ class EvidenceAsset(BaseModel):
 
 class InvestigationDetail(InvestigationSummary):
     assets: list[EvidenceAsset]
+    analyses: dict[str, dict[str, object]] = Field(default_factory=dict)

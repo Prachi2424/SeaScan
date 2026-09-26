@@ -6,6 +6,7 @@ import json
 import math
 import re
 import zipfile
+from xml.sax.saxutils import escape
 from datetime import UTC, datetime
 from typing import Any, Iterable
 
@@ -108,36 +109,7 @@ def _haversine_km(first: tuple[float, float], second: tuple[float, float]) -> fl
     return 6371.0088 * 2 * math.asin(min(1.0, math.sqrt(value)))
 
 
-def calculate_spill_metrics(geojson: dict[str, Any] | None) -> dict[str, Any]:
-    geometries = _feature_geometries(geojson)
-    points = [point for geometry in geometries for point in _iter_coordinates(geometry)]
-    if not points:
-        return {"component_count": 0, "area_km2": None, "perimeter_km": None, "centroid": None, "bounds": None}
-    reference_latitude = sum(point[1] for point in points) / len(points)
-    km_per_lon = 111.320 * math.cos(math.radians(reference_latitude))
-    area_km2 = 0.0
-    perimeter_km = 0.0
-    for geometry in geometries:
-        for ring in _polygon_rings(geometry):
-            if len(ring) < 3:
-                continue
-            projected = [(float(point[0]) * km_per_lon, float(point[1]) * 110.574) for point in ring]
-            signed_area = sum(
-                projected[index][0] * projected[(index + 1) % len(projected)][1]
-                - projected[(index + 1) % len(projected)][0] * projected[index][1]
-                for index in range(len(projected))
-            ) / 2
-            area_km2 += abs(signed_area)
-            perimeter_km += sum(_haversine_km(tuple(ring[index][:2]), tuple(ring[(index + 1) % len(ring)][:2])) for index in range(len(ring)))
-    west, east = min(point[0] for point in points), max(point[0] for point in points)
-    south, north = min(point[1] for point in points), max(point[1] for point in points)
-    return {
-        "component_count": len(geometries),
-        "area_km2": round(area_km2, 3),
-        "perimeter_km": round(perimeter_km, 3),
-        "centroid": [round(sum(point[0] for point in points) / len(points), 6), round(sum(point[1] for point in points) / len(points), 6)],
-        "bounds": [round(west, 6), round(south, 6), round(east, 6), round(north, 6)],
-    }
+from app.geospatial.metrics import calculate_spill_metrics
 
 
 def _map_png(payload: ReportAnalysisBundle) -> bytes:
@@ -265,14 +237,15 @@ def build_forensic_pdf(investigation: InvestigationDetail, payload: ReportAnalys
     ])
     metric_rows = [
         ["Metric", "Value"], ["Detected components", metrics["component_count"]],
-        ["Estimated planar area", f"{metrics['area_km2']} km2" if metrics["area_km2"] is not None else "Not available"],
-        ["Estimated perimeter", f"{metrics['perimeter_km']} km" if metrics["perimeter_km"] is not None else "Not available"],
+        ["WGS84 spill area", f"{metrics['area_km2']} km2" if metrics["area_km2"] is not None else "Not available"],
+        ["WGS84 boundary length", f"{metrics['perimeter_km']} km" if metrics["perimeter_km"] is not None else "Not available"],
+        ["Major-axis orientation", f"{metrics['orientation_degrees']} degrees from local north" if metrics.get("orientation_degrees") is not None else "Undefined / not available"],
         ["Coordinate centroid", ", ".join(map(str, metrics["centroid"])) if metrics["centroid"] else "Not available"],
         ["Bounding extent", ", ".join(map(str, metrics["bounds"])) if metrics["bounds"] else "Not available"],
         ["Positive raster pixels", _value((payload.satellite_validation or {}).get("positive_pixel_count"))],
         ["Segmentation threshold", _value((payload.satellite_validation or {}).get("threshold"))],
     ]
-    story.extend([_data_table(metric_rows, [64 * mm, 100 * mm]), Paragraph("Area and perimeter are approximate local planar/geodesic calculations from the supplied GeoJSON and must be validated against source CRS and survey-grade tooling.", styles["small"]), PageBreak()])
+    story.extend([_data_table(metric_rows, [64 * mm, 100 * mm]), Paragraph("Area and boundary length use the WGS84 ellipsoid, with holes subtracted from area and included in boundary length. Overlapping polygons are merged; centroid and orientation use a local equal-area projection.", styles["small"]), PageBreak()])
 
     story.extend([Paragraph("4. Drift reconstruction", styles["h1"])])
     drift_rows = [["Run", "Observed at", "Duration", "Particles", "Output features"]]
@@ -281,18 +254,72 @@ def build_forensic_pdf(investigation: InvestigationDetail, payload: ReportAnalys
             drift_rows.append([label, _value(drift.seed.get("observed_at")), f"{_value(drift.seed.get('duration_hours'))} h", _value(drift.seed.get("particle_count")), len(drift.trajectory.get("features", []))])
         else:
             drift_rows.append([label, "Not completed", "-", "-", "-"])
-    story.extend([_data_table(drift_rows, [34 * mm, 49 * mm, 27 * mm, 26 * mm, 29 * mm]), Paragraph("Backward and forward trajectories are simulations conditioned on uploaded environmental observations and configured particle parameters; they are not direct observations.", styles["small"]), Paragraph("5. Potential vessel rankings", styles["h1"])])
+    story.extend([_data_table(drift_rows, [34 * mm, 49 * mm, 27 * mm, 26 * mm, 29 * mm]), Paragraph("Backward and forward trajectories are simulations conditioned on uploaded environmental observations and configured particle parameters; they are not direct observations.", styles["small"])])
+    for label, drift in (("Hindcast", payload.backward_drift), ("Forecast", payload.forward_drift)):
+        if drift:
+            story.append(Paragraph(escape(f"{label} sampling: {drift.sampling.get('method', 'Not recorded')}. Maximum observation distance: {drift.sampling.get('maximum_nearest_observation_distance_km', 'Not recorded')} km."), styles["small"]))
+            for warning in drift.sampling.get("warnings", []):
+                story.append(Paragraph(escape(f"{label} coverage warning: {warning}"), styles["small"]))
+    story.append(Paragraph("5. Potential vessel rankings", styles["h1"]))
     candidate_rows = [["Rank", "MMSI", "Vessel type", "Evidence score", "Closest distance", "AIS positions"]]
     if payload.attribution and payload.attribution.candidates:
         for index, candidate in enumerate(payload.attribution.candidates[:10], start=1):
-            candidate_rows.append([index, candidate.mmsi, _value(candidate.vessel_type, "Unrecorded"), f"{candidate.evidence_score:.3f}", f"{_value(candidate.evidence.get('closest_observed_distance_km'))} km", _value(candidate.evidence.get("positions_in_time_window"))])
+            candidate_rows.append([index, candidate.mmsi, _value(candidate.vessel_type, "Unrecorded"), f"{candidate.evidence_score:.3f}", f"{_value(candidate.evidence.get('closest_approach_distance_km', candidate.evidence.get('closest_observed_distance_km')))} km", _value(candidate.evidence.get("positions_in_time_window"))])
     else:
         candidate_rows.append(["-", "No completed attribution", "-", "-", "-", "-"])
     story.extend([_data_table(candidate_rows, [15 * mm, 30 * mm, 31 * mm, 28 * mm, 34 * mm, 27 * mm]), Paragraph(payload.attribution.disclaimer if payload.attribution else "No vessel attribution result was supplied.", styles["legal"]), Paragraph("Scoring components", styles["h2"])])
     if payload.attribution:
+        for candidate in payload.attribution.candidates[:10]:
+            details = candidate.evidence
+            if details.get("closest_approach_at"):
+                story.append(Paragraph(escape(f"MMSI {candidate.mmsi}: closest approach at {details['closest_approach_at']} ({'interpolated' if details.get('closest_approach_interpolated') else 'observed'}). Hindcast region intersection: {details.get('origin_region_intersection', 'Not recorded')}."), styles["small"]))
+            for warning in details.get("warnings", []):
+                story.append(Paragraph(escape(f"MMSI {candidate.mmsi}: {warning}"), styles["small"]))
+        for excluded in payload.attribution.excluded_vessels[:20]:
+            story.append(Paragraph(escape(f"Excluded MMSI {excluded['mmsi']}: {excluded['reason']}"), styles["small"]))
+        if len(payload.attribution.excluded_vessels)>20:
+            story.append(Paragraph("Only the first 20 excluded vessels are listed here; the complete list is saved with the investigation.", styles["small"]))
         weights = [["Component", "Weight"]] + [[name.replace("_", " ").title(), f"{weight:.0%}"] for name, weight in payload.attribution.scoring_formula.items()]
         story.append(_data_table(weights, [90 * mm, 74 * mm]))
+    if payload.release_scenarios:
+        comparison = payload.release_scenarios
+        story.extend([PageBreak(), Paragraph("Release-time scenario exploration", styles["h1"]),
+            Paragraph(escape(str(comparison.get("disclaimer", ""))), styles["legal"])])
+        for scenario in comparison.get("scenarios", []):
+            story.append(Paragraph(f"{scenario['duration_hours']} hours before observation", styles["h2"]))
+            if scenario.get("status") != "complete":
+                story.append(Paragraph(escape("Unavailable: " + str(scenario.get("error"))), styles["small"]))
+                continue
+            origin = scenario["origin"]
+            candidates = scenario.get("candidates", [])
+            leader = f"Leading candidate {candidates[0]['mmsi']}, evidence score {candidates[0]['evidence_score']:.3f}" if candidates else "No matching vessels"
+            description = f"Origin time: {origin['properties']['timestamp']}. Longitude/latitude: {origin['geometry']['coordinates']}. Matching vessels: {scenario['candidate_count']}. {leader}."
+            story.append(Paragraph(escape(description), styles["small"]))
+            for warning in scenario.get("sampling", {}).get("warnings", []):
+                story.append(Paragraph(escape(str(warning)), styles["small"]))
     story.extend([PageBreak(), Paragraph("6. Evidence provenance and package integrity", styles["h1"])])
+    story.append(Paragraph("Real/synthetic labels, sources, acquisition times and uploader names are declarations, not independently verified facts. Upload times, file hashes and model identity are recorded by SeaScan. Missing historical details are not inferred.", styles["body"]))
+    for asset in investigation.assets:
+        provenance = asset.metadata.get("provenance") or {}
+        model = asset.metadata.get("model") or {}
+        rows = [["Evidence field", "Recorded value"],
+            ["Evidence type", {"real": "Real observations (declared)", "synthetic": "Synthetic / demonstration"}.get(provenance.get("evidence_kind"), "Not recorded")],
+            ["Source organization", provenance.get("source_organization") or "Not recorded"],
+            ["Source reference", provenance.get("source_reference") or "Not recorded"],
+            ["Dataset / version", provenance.get("dataset_version") or "Not recorded"],
+            ["Acquisition time", provenance.get("acquired_at") or "Not recorded"],
+            ["Uploaded at", asset.created_at.isoformat()],
+            ["Added by (self-reported)", provenance.get("added_by") or "Not recorded"],
+            ["CRS read during ingestion", asset.metadata.get("coordinate_reference") or "Not recorded"],
+            ["CRS (declared)", provenance.get("declared_crs") or "Not recorded"],
+            ["Processing before upload (declared)", provenance.get("prior_processing") or "Not recorded"],
+            ["SeaScan processing", "; ".join(asset.metadata.get("processing_steps") or []) or "Not recorded"],
+            ["Model architecture", model.get("architecture") or "Not recorded"],
+            ["Model weights SHA-256", model.get("weights_sha256") or "Not recorded"],
+        ]
+        story.append(Paragraph(escape(f"{asset.asset_type.title()}: {asset.original_filename}"), ParagraphStyle("EvidenceHeading", parent=styles["h2"], keepWithNext=True)))
+        story.append(_data_table(rows, [50 * mm, 115 * mm], font_size=8))
+        story.append(Spacer(1, 8))
     evidence_rows = [["Type", "Original filename", "Bytes", "SHA-256"]]
     for asset in investigation.assets:
         evidence_rows.append([asset.asset_type.title(), asset.original_filename, f"{asset.byte_size:,}", asset.sha256])
@@ -307,7 +334,7 @@ def build_forensic_pdf(investigation: InvestigationDetail, payload: ReportAnalys
 def _data_table(rows: list[list[Any]], widths: list[float], font_size: float = 8) -> Table:
     body_style = ParagraphStyle("Cell", fontName="Helvetica", fontSize=font_size, leading=font_size + 2, textColor=INK)
     prepared = [
-        [str(cell) if row_index == 0 else Paragraph(str(cell), body_style) for cell in row]
+        [str(cell) if row_index == 0 else Paragraph(escape(str(cell)), body_style) for cell in row]
         for row_index, row in enumerate(rows)
     ]
     table = Table(prepared, colWidths=widths, repeatRows=1, hAlign="LEFT")
@@ -320,12 +347,12 @@ def build_report_package(investigation: InvestigationDetail, payload: ReportAnal
     filename = safe_filename(investigation.title)
     report = build_forensic_pdf(investigation, payload, generated_at)
     manifest = ReportPackageManifest(
-        schema_version="1.0",
+        schema_version="1.1",
         report_filename=filename,
         report_sha256=hashlib.sha256(report).hexdigest(),
         generated_at=generated_at.isoformat(),
         investigation_id=investigation.id,
-        evidence_assets=[{"id": asset.id, "type": asset.asset_type, "filename": asset.original_filename, "byte_size": asset.byte_size, "sha256": asset.sha256} for asset in investigation.assets],
+        evidence_assets=[{"id": asset.id, "type": asset.asset_type, "filename": asset.original_filename, "byte_size": asset.byte_size, "sha256": asset.sha256, "uploaded_at": asset.created_at.isoformat(), "provenance": asset.metadata.get("provenance") or {"evidence_kind": "unknown"}, "coordinate_reference": asset.metadata.get("coordinate_reference"), "processing_steps": asset.metadata.get("processing_steps", []), "model": asset.metadata.get("model")} for asset in investigation.assets],
         legal_notice=LEGAL_NOTICE,
     )
     return filename, report, manifest

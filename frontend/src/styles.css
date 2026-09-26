@@ -233,3 +233,23 @@ nav { display: grid; gap: 6px; }.nav-item { display: flex; align-items: center; 
   .metrics-strip article { border-bottom: 1px solid rgba(140, 200, 220, .12); }
   .simulation-comparison__grid, .distance-chart-grid { grid-template-columns: 1fr; }
 }
+
+/* Evidence source declarations and server-recorded identity. */
+.evidence-provenance { margin: 20px 0; padding: 20px; border: 1px solid #344654; border-radius: 12px; }
+.evidence-provenance p, .provenance-form p { color: #a9bdc9; font-size: .85rem; }
+.evidence-provenance details { border-top: 1px solid #344654; padding: 12px 0; }
+.evidence-provenance summary { cursor: pointer; overflow-wrap: anywhere; }
+.evidence-provenance dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.evidence-provenance dt { font-size: .8rem; color: #a9bdc9; }
+.evidence-provenance dd { margin: 4px 0 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.provenance-kind { display: inline-block; margin-left: 12px; padding: 3px 8px; border: 1px solid #78909c; border-radius: 6px; font-size: .8rem; }
+.provenance-kind--synthetic { color: #ffd077; border-color: #bd8f43; }
+.provenance-form { display: grid; gap: 12px; border: 1px solid #344654; border-radius: 8px; padding: 14px; }
+.provenance-form label { display: grid; gap: 5px; }
+.provenance-form input, .provenance-form select, .provenance-form textarea { width: 100%; padding: 8px; background: #10232d; color: #e8f3f6; border: 1px solid #546874; border-radius: 5px; }
+
+.map-context-controls { position: absolute; top: 12px; left: 60px; z-index: 1000; display: flex; gap: 6px; flex-wrap: wrap; max-width: calc(100% - 125px); }
+.map-context-controls button { padding: 7px 10px; border: 1px solid #55717b; border-radius: 6px; background: #10232d; color: #fff; cursor: pointer; font-size: 12px; }
+.map-context-controls button:disabled { opacity: .5; cursor: default; }
+
+.workflow-fields { border: 0; padding: 0; margin: 0; min-width: 0; }

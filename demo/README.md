@@ -37,3 +37,17 @@ Satellite source: William Alberto Ramirez, *Oil Spill Segmentation*, Zenodo, DOI
 - Held-out validation: mean per-scene Dice `0.367`, IoU `0.252`.
 - Separate seven-scene test: mean per-scene Dice `0.551`, IoU `0.408`.
 - Limitation: this is a small prototype checkpoint for an internal hackathon, not a production maritime surveillance model.
+
+## Repeatable controlled validation (Step 9)
+
+From the project root, using the existing local Python environment:
+
+```bash
+PYTHONPATH=backend backend/.venv-local/bin/python -m app.validation.controlled --output output/controlled-validation
+```
+
+This creates a Markdown summary and a machine-readable JSON report. It uses generated synthetic fixtures, requires no downloads, and does not modify investigations or model weights. Run it again after changing drift or ranking logic to compare results. The report records code hashes and scoring weights.
+
+The six AIS scenarios cover a clear source, crowded tracks, a wrong-time distractor, a long source AIS gap, absent-source nearby traffic and absent-source distant traffic. Drift is checked against an analytic constant-current reference; sparse environmental data must be rejected. Missed sources count against Top-1 and Top-3 results. Source-absent cases are reported separately because the current ranking does not establish whether a responsible vessel is present.
+
+These are small regression fixtures, not an independent scientific validation dataset. They do not evaluate segmentation, infer spill age, or establish operational attribution accuracy.

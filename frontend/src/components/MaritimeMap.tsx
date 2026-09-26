@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CircleMarker, GeoJSON as GeoJSONLayer, ImageOverlay, LayerGroup, LayersControl, MapContainer,
-  Marker, Polyline, Popup, Rectangle, TileLayer, Tooltip, useMap,
+  Marker, Polyline, Popup, Rectangle, ScaleControl, TileLayer, Tooltip, useMap,
 } from "react-leaflet";
 import type { LatLngBoundsExpression, LatLngTuple, Layer, PathOptions } from "leaflet";
 import * as L from "leaflet";
@@ -18,6 +18,7 @@ export interface SatelliteAssetView {
   bounds: [number, number, number, number] | null;
   imageUrl: string | null;
   groundTruthUrl: string | null;
+  centroid?: LatLngTuple | null;
 }
 
 interface MaritimeMapProps {
@@ -132,7 +133,8 @@ function envelopePathOptions(kind: "backward" | "forward"): PathOptions {
 
 export function MaritimeMap({ satellite, backwardDrift, forwardDrift, candidates, selectedMmsi, onSelectVessel }: MaritimeMapProps) {
   const [maskOpacity, setMaskOpacity] = useState(0.38);
-  const spillCentroid = useMemo(() => (satellite ? computeCentroid(satellite.geojson) : null), [satellite]);
+  const mapRef = useRef<L.Map | null>(null);
+  const spillCentroid = useMemo(() => (satellite ? satellite.centroid ?? computeCentroid(satellite.geojson) : null), [satellite]);
   const backwardPath = useMemo(() => (backwardDrift ? trajectoryToPositions(backwardDrift.trajectory) : []), [backwardDrift]);
   const forwardPath = useMemo(() => (forwardDrift ? trajectoryToPositions(forwardDrift.trajectory) : []), [forwardDrift]);
   const vectors = useMemo(() => vectorMarkers(backwardDrift ?? forwardDrift), [backwardDrift, forwardDrift]);
@@ -161,9 +163,13 @@ export function MaritimeMap({ satellite, backwardDrift, forwardDrift, candidates
         <label><span>Mask opacity <b>{Math.round(maskOpacity * 100)}%</b></span><input type="range" min="0" max="0.9" step="0.05" value={maskOpacity} onChange={(event) => setMaskOpacity(Number(event.target.value))} /></label>
       </div>
       <div className="maritime-map">
-        <MapContainer center={spillCentroid ?? DEFAULT_CENTER} zoom={DEFAULT_ZOOM} worldCopyJump>
+        <div className="map-context-controls">
+          <button type="button" onClick={() => mapRef.current?.setView(DEFAULT_CENTER, DEFAULT_ZOOM)}>Regional context</button>
+          <button type="button" disabled={!combinedBounds} onClick={() => combinedBounds && mapRef.current?.fitBounds(combinedBounds, { padding: [48, 48], maxZoom: 13 })}>Fit evidence</button>
+        </div>
+        <MapContainer ref={mapRef} center={spillCentroid ?? DEFAULT_CENTER} zoom={DEFAULT_ZOOM} worldCopyJump>
           <LayersControl position="topright">
-            <LayersControl.BaseLayer checked name="Coastline + dark ocean"><TileLayer attribution='&copy; OpenStreetMap &copy; CARTO' url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" /></LayersControl.BaseLayer>
+            <LayersControl.BaseLayer checked name="Labeled street and coastline map"><TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" /></LayersControl.BaseLayer>
             <LayersControl.BaseLayer name="Satellite imagery basemap"><TileLayer attribution="Tiles &copy; Esri" url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" /></LayersControl.BaseLayer>
             <LayersControl.Overlay name="Shipping lanes + marine marks"><TileLayer attribution="Map data &copy; OpenSeaMap contributors" url="https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png" opacity={0.72} /></LayersControl.Overlay>
 
@@ -197,6 +203,7 @@ export function MaritimeMap({ satellite, backwardDrift, forwardDrift, candidates
               </LayerGroup>;
             })}</LayerGroup></LayersControl.Overlay>}
           </LayersControl>
+          <ScaleControl position="bottomleft" imperial={false} />
           <FitToEvidence bounds={combinedBounds} /><FlyToSelection target={selectionTarget} />
         </MapContainer>
         <div className="map-legend" aria-label="Map legend"><span><i className="legend-dot legend-dot--spill" />Spill</span><span><i className="legend-line legend-line--backward" />Hindcast</span><span><i className="legend-line legend-line--forward" />Forecast</span><span><i className="legend-arrow legend-arrow--current">➤</i>Current</span><span><i className="legend-arrow legend-arrow--wind">➤</i>Wind</span></div>

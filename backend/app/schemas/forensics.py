@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class DriftRequest(BaseModel):
@@ -24,9 +24,11 @@ class DriftResponse(BaseModel):
     trajectory: dict[str, object]
     probability_region: dict[str, object]
     sampling: dict[str, object]
+    parameters: DriftRequest | None = None
 
 
 class AttributionRequest(BaseModel):
+    use_hindcast_region: bool = False
     ais_asset_id: str
     origin_latitude: float = Field(ge=-90, le=90)
     origin_longitude: float = Field(ge=-180, le=180)
@@ -49,4 +51,26 @@ class AttributionResponse(BaseModel):
     disclaimer: str
     candidate_count: int
     scoring_formula: dict[str, float]
+    excluded_vessels: list[dict[str, object]] = Field(default_factory=list)
+    ranking_version: str = "legacy"
+    ranking_context: dict[str, object] = Field(default_factory=dict)
     candidates: list[CandidateVessel]
+    parameters: AttributionRequest | None = None
+
+
+class ReleaseScenarioRequest(BaseModel):
+    drift: DriftRequest
+    ais_asset_id: str
+    durations_hours: list[float] = Field(min_length=1, max_length=5)
+    search_radius_km: float = Field(default=25, gt=0, le=500)
+    temporal_window_minutes: int = Field(default=90, ge=5, le=1440)
+
+    @field_validator('durations_hours')
+    @classmethod
+    def validate_durations(cls, values):
+        import math
+        if any(not math.isfinite(value) or not 1 <= value <= 72 for value in values):
+            raise ValueError('Choose durations between 1 and 72 hours.')
+        if len(set(values)) != len(values):
+            raise ValueError('Durations must be unique.')
+        return sorted(values)

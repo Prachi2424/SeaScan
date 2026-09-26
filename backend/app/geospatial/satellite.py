@@ -17,6 +17,7 @@ def segment_satellite(
     settings: Settings,
     threshold: float,
     bounds: tuple[float, float, float, float] | None,
+    min_component_pixels: int = 0,
 ) -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
     """Run an actual trained checkpoint over a raster and polygonize only model-positive pixels."""
     if file_path.suffix.lower() not in SATELLITE_SUFFIXES:
@@ -24,13 +25,51 @@ def segment_satellite(
     if not 0 < threshold < 1:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="threshold must be between 0 and 1.")
 
+    if not 0 <= min_component_pixels <= 1_000_000:
+        raise HTTPException(status_code=422, detail="Minimum component size must be between 0 and 1,000,000 pixels.")
+
     from app.ml.inference import SegmentationRunner
 
     runner = SegmentationRunner(settings)
     runner.assert_ready()
-    raster, transform, crs, source_metadata = _read_raster(file_path, bounds)
-    probabilities = runner.predict(raster)
-    return _polygonize(probabilities, threshold, transform, crs, source_metadata, runner.model_metadata())
+    if file_path.suffix.lower() == ".png":
+        from PIL import Image
+        with Image.open(file_path) as image:
+            _check_dimensions(image.width, image.height, png=True)
+        raster, transform, crs, source_metadata = _read_raster(file_path, bounds)
+        probabilities = runner.predict(raster)
+    else:
+        import numpy as np
+        import rasterio
+        from rasterio.enums import Resampling
+        from rasterio.windows import Window
+        try:
+            with rasterio.open(file_path) as dataset:
+                _check_dimensions(dataset.width, dataset.height)
+                if dataset.count < 1:
+                    raise HTTPException(status_code=422, detail="GeoTIFF contains no raster bands.")
+                if not dataset.crs:
+                    raise HTTPException(status_code=422, detail="GeoTIFF must include a coordinate reference system for map placement.")
+                indices = list(range(1, min(dataset.count, 3) + 1))
+                def bands(values):
+                    values = values.astype(np.float32).filled(np.nan)
+                    while values.shape[0] < 3:
+                        values = np.concatenate([values, values[-1:]], axis=0)
+                    return values
+                def read_window(y, x, h, w):
+                    return bands(dataset.read(indices, window=Window(x, y, w, h), masked=True))
+                sample = bands(dataset.read(indices, out_shape=(len(indices), min(512, dataset.height), min(512, dataset.width)), masked=True, resampling=Resampling.nearest))
+                probabilities = runner.predict_windows(read_window, dataset.height, dataset.width, sample)
+                transform, crs = dataset.transform, dataset.crs
+                source_metadata = {"source_format": "geotiff", "coordinate_reference": str(crs), "width": dataset.width, "height": dataset.height, "band_count": dataset.count}
+        except rasterio.errors.RasterioError as error:
+            raise HTTPException(status_code=422, detail="The GeoTIFF could not be read.") from error
+    source_metadata["inference"] = {
+        "method": "overlapping_tiles", "tile_size": 256, "overlap": 64,
+        "blending": "positive Hann weights", "normalization": "shared scene 2nd/98th percentiles from a sample up to 512x512",
+        "nodata": "pixels invalid in any input band excluded", "pixel_limit": 16_777_216,
+    }
+    return _polygonize(probabilities, threshold, transform, crs, source_metadata, runner.model_metadata(), min_component_pixels)
 
 
 def _read_raster(file_path: Path, bounds: tuple[float, float, float, float] | None):
@@ -69,19 +108,42 @@ def _read_raster(file_path: Path, bounds: tuple[float, float, float, float] | No
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="The GeoTIFF cannot be read as a valid raster.") from error
 
 
-def _polygonize(probabilities, threshold: float, transform, crs, source_metadata: dict[str, object], model_metadata: dict[str, object]):
+def _polygonize(probabilities, threshold: float, transform, crs, source_metadata: dict[str, object], model_metadata: dict[str, object], min_component_pixels: int = 0):
     import numpy as np
     from rasterio.features import geometry_mask, shapes
     from rasterio.warp import transform_geom
 
     binary_mask = probabilities >= threshold
+    raw_positive_count = int(binary_mask.sum())
+    removed_components = 0
+    if min_component_pixels > 1:
+        from scipy.ndimage import label
+        labels, _ = label(binary_mask)  # Four-neighbor connectivity matches polygonization.
+        counts = np.bincount(labels.ravel())
+        remove = counts < min_component_pixels
+        remove[0] = False
+        removed_components = int(remove[1:].sum())
+        binary_mask[remove[labels]] = False
+        del labels, counts, remove
     feature_collection: dict[str, object] = {"type": "FeatureCollection", "features": []}
     features: list[dict[str, object]] = []
     for geometry, value in shapes(binary_mask.astype(np.uint8), mask=binary_mask, transform=transform):
         if not value:
             continue
-        local_mask = geometry_mask([geometry], out_shape=binary_mask.shape, transform=transform, invert=True)
-        component_probability = probabilities[local_mask]
+        if len(features) >= 10_000:
+            raise HTTPException(status_code=422, detail="Segmentation exceeds 10,000 components. Crop the scene or raise the threshold.")
+        # Rasterize each component only inside its pixel bounding window.
+        from affine import Affine
+        inverse = ~transform
+        pixel_coordinates = [inverse * tuple(point) for ring in geometry["coordinates"] for point in ring]
+        x0 = max(0, math.floor(min(point[0] for point in pixel_coordinates)))
+        y0 = max(0, math.floor(min(point[1] for point in pixel_coordinates)))
+        x1 = min(probabilities.shape[1], math.ceil(max(point[0] for point in pixel_coordinates)))
+        y1 = min(probabilities.shape[0], math.ceil(max(point[1] for point in pixel_coordinates)))
+        if x1 <= x0 or y1 <= y0:
+            continue
+        local_mask = geometry_mask([geometry], out_shape=(y1-y0, x1-x0), transform=transform * Affine.translation(x0, y0), invert=True)
+        component_probability = probabilities[y0:y1, x0:x1][local_mask]
         if component_probability.size == 0:
             continue
         output_geometry: dict[str, Any] = geometry
@@ -100,10 +162,23 @@ def _polygonize(probabilities, threshold: float, transform, crs, source_metadata
             }
         )
     feature_collection["features"] = features
+    from app.geospatial.metrics import calculate_spill_metrics
+    try:
+        metrics = calculate_spill_metrics(feature_collection)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     validation = {
+        "geometry_metrics": metrics,
+        "cleanup": {"min_component_pixels": min_component_pixels, "connectivity": 4, "removed_components": removed_components, "removed_pixels": raw_positive_count-int(binary_mask.sum()), "raw_positive_pixel_count": raw_positive_count},
         **source_metadata,
         "threshold": threshold,
         "positive_pixel_count": int(binary_mask.sum()),
         "component_count": len(features),
     }
     return feature_collection, model_metadata, validation
+
+
+def _check_dimensions(width, height, png=False):
+    limit = 4_194_304 if png else 16_777_216
+    if width < 1 or height < 1 or width * height > limit:
+        raise HTTPException(status_code=422, detail=f"Image exceeds the {limit:,}-pixel processing limit. Crop the scene or use a smaller image.")
