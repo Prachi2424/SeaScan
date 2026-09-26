@@ -126,3 +126,14 @@ docker-compose up --build
 # Frontend Client: http://localhost:5173
 # REST API Documentation: http://localhost:8000/docs
 ```
+
+## Tiled satellite inference
+
+Tests generate temporary, untrained checkpoint fixtures exclusively to verify
+loading and validation. No test weights or metrics are used by the application.
+
+Satellite uploads now use 256-pixel tiles with 64-pixel overlap and weighted probability blending. GeoTIFF reads are windowed. Normalization is shared across tiles using scene percentile estimates from up to 512x512 sampled pixels; small scenes use all pixels. NoData pixels are excluded. GeoTIFFs must contain a CRS.
+
+Limits: 16,777,216 pixels for GeoTIFF, 4,194,304 for PNG, and 10,000 output components, in addition to the upload byte limit. PNG decoding and final probability/mask arrays still use scene-sized memory. Crop scenes larger than these limits. Tiling reduces model activation memory but may change large-scene predictions; independent accuracy evaluation remains necessary.
+
+Regression coverage: `backend/tests/test_tiled_inference.py`.

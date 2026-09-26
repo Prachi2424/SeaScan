@@ -43,20 +43,57 @@ class SegmentationRunner:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="The configured U-Net checkpoint is unreadable or incompatible with SeaScan's model architecture.") from error
 
     def predict(self, image):
+        """Array adapter for PNGs and small in-memory callers."""
+        _, height, width = image.shape
+        return self.predict_windows(
+            lambda y, x, h, w: image[:, y:y+h, x:x+w], height, width,
+            image[:, ::max(1, (height + 511) // 512), ::max(1, (width + 511) // 512)],
+        )
+
+    def predict_windows(self, read_window, height, width, sample, tile_size=256, overlap=64):
+        """Bound model activations to one tile; blend with shared scene normalization."""
         import numpy as np
         import torch
         import torch.nn.functional as functional
 
+        if tile_size < 16 or tile_size % 16 or not 0 <= overlap < tile_size:
+            raise ValueError("Tile size must be a multiple of 16; overlap must be smaller than the tile.")
+        if height < 1 or width < 1 or height * width > 16_777_216:
+            raise HTTPException(status_code=422, detail="Satellite image exceeds the 16,777,216-pixel processing limit. Crop the scene before uploading.")
+        limits = []
+        for band in sample:
+            finite = band[np.isfinite(band)]
+            if not finite.size:
+                raise HTTPException(status_code=422, detail="No valid pixels in a sampled satellite band. Crop to valid coverage and retry.")
+            lower, upper = np.percentile(finite, (2, 98))
+            limits.append((lower, upper if upper > lower else lower + 1.0))
         model = self._load_model()
-        normalised = _normalise_per_band(image)
-        _, height, width = normalised.shape
-        pad_height = (16 - height % 16) % 16
-        pad_width = (16 - width % 16) % 16
-        tensor = torch.from_numpy(normalised).unsqueeze(0)
-        tensor = functional.pad(tensor, (0, pad_width, 0, pad_height), mode="reflect")
-        with torch.inference_mode():
-            output = torch.sigmoid(model(tensor)).squeeze(0).squeeze(0).cpu().numpy()
-        return output[:height, :width].astype(np.float32)
+        accumulated = np.zeros((height, width), dtype=np.float32)
+        weights = np.zeros_like(accumulated)
+        for y in _tile_starts(height, tile_size, overlap):
+            for x in _tile_starts(width, tile_size, overlap):
+                h, w = min(tile_size, height-y), min(tile_size, width-x)
+                pixels = read_window(y, x, h, w)
+                valid = np.isfinite(pixels).all(axis=0)
+                if not valid.any():
+                    continue
+                normalised = np.empty_like(pixels, dtype=np.float32)
+                for band, (lower, upper) in enumerate(limits):
+                    normalised[band] = np.clip((np.nan_to_num(pixels[band], nan=lower, posinf=upper, neginf=lower)-lower)/(upper-lower), 0, 1)
+                tensor = torch.from_numpy(normalised).unsqueeze(0)
+                pad_h, pad_w = (-h) % 16, (-w) % 16
+                mode = "reflect" if pad_h < h and pad_w < w else "replicate"
+                tensor = functional.pad(tensor, (0, pad_w, 0, pad_h), mode=mode)
+                with torch.inference_mode():
+                    probability = torch.sigmoid(model(tensor))[0, 0, :h, :w].cpu().numpy()
+                # Positive weights retain image borders while de-emphasizing tile edges.
+                blend = np.outer(np.maximum(np.hanning(h), .05), np.maximum(np.hanning(w), .05)).astype(np.float32)
+                blend *= valid
+                accumulated[y:y+h, x:x+w] += probability * blend
+                weights[y:y+h, x:x+w] += blend
+        np.divide(accumulated, weights, out=accumulated, where=weights > 0)
+        accumulated[weights == 0] = 0
+        return accumulated
 
     def model_metadata(self) -> dict[str, object]:
         import torch
@@ -70,7 +107,7 @@ class SegmentationRunner:
         return {
             "architecture": "SeaScan UNet (3-band, base_channels=32)",
             "weights_sha256": _sha256(self._weights_path),
-            "probability_interpretation": "sigmoid output of the configured trained checkpoint",
+            "probability_interpretation": "overlap-weighted mean of sigmoid outputs from the configured checkpoint; not a calibrated probability",
             "training": training_metadata,
         }
 
@@ -106,3 +143,12 @@ def _validate_training_metadata(value: object) -> dict[str, object]:
     if missing:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Configured checkpoint lacks required training provenance fields.")
     return {key: value[key] for key in required}
+
+
+def _tile_starts(length, tile_size, overlap):
+    if length <= tile_size:
+        return [0]
+    starts = list(range(0, length-tile_size+1, tile_size-overlap))
+    if starts[-1] != length-tile_size:
+        starts.append(length-tile_size)
+    return starts

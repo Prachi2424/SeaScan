@@ -11,6 +11,7 @@ interface SuggestedOrigin {
 }
 
 interface AttributionControlsProps {
+  savedParameters?: AttributionRequest | null;
   aisAsset: IngestionResponse | null;
   suggestedOrigin: SuggestedOrigin | null;
   onRun: (payload: AttributionRequest) => void;
@@ -24,20 +25,22 @@ function toLocalInputValue(iso: string): string {
   return local.toISOString().slice(0, 16);
 }
 
-export function AttributionControls({ aisAsset, suggestedOrigin, onRun, loading, error }: AttributionControlsProps) {
-  const [originLatitude, setOriginLatitude] = useState(suggestedOrigin ? String(suggestedOrigin.latitude) : "");
-  const [originLongitude, setOriginLongitude] = useState(suggestedOrigin ? String(suggestedOrigin.longitude) : "");
+export function AttributionControls({ savedParameters, aisAsset, suggestedOrigin, onRun, loading, error }: AttributionControlsProps) {
+  const [originLatitude, setOriginLatitude] = useState(savedParameters ? String(savedParameters.origin_latitude) : suggestedOrigin ? String(suggestedOrigin.latitude) : "");
+  const [originLongitude, setOriginLongitude] = useState(savedParameters ? String(savedParameters.origin_longitude) : suggestedOrigin ? String(suggestedOrigin.longitude) : "");
   const [estimatedOriginAt, setEstimatedOriginAt] = useState(
-    suggestedOrigin ? toLocalInputValue(suggestedOrigin.estimatedOriginAt) : "",
+    savedParameters ? toLocalInputValue(savedParameters.estimated_origin_at) : suggestedOrigin ? toLocalInputValue(suggestedOrigin.estimatedOriginAt) : "",
   );
-  const [searchRadiusKm, setSearchRadiusKm] = useState(25);
-  const [temporalWindowMinutes, setTemporalWindowMinutes] = useState(90);
-  const [behaviorWindowHours, setBehaviorWindowHours] = useState(24);
+  const [searchRadiusKm, setSearchRadiusKm] = useState(savedParameters?.search_radius_km ?? 25);
+  const [temporalWindowMinutes, setTemporalWindowMinutes] = useState(savedParameters?.temporal_window_minutes ?? 90);
+  const [behaviorWindowHours, setBehaviorWindowHours] = useState(savedParameters?.behavior_window_hours ?? 24);
 
+  const [useHindcast, setUseHindcast] = useState(savedParameters?.use_hindcast_region ?? false);
   const disabled = !aisAsset;
 
   function applySuggestedOrigin() {
     if (!suggestedOrigin) return;
+    setUseHindcast(true);
     setOriginLatitude(String(suggestedOrigin.latitude));
     setOriginLongitude(String(suggestedOrigin.longitude));
     setEstimatedOriginAt(toLocalInputValue(suggestedOrigin.estimatedOriginAt));
@@ -51,6 +54,7 @@ export function AttributionControls({ aisAsset, suggestedOrigin, onRun, loading,
     if (Number.isNaN(lat) || Number.isNaN(lng) || !estimatedOriginAt) return;
     onRun({
       ais_asset_id: aisAsset.asset.id,
+      use_hindcast_region: useHindcast,
       origin_latitude: lat,
       origin_longitude: lng,
       estimated_origin_at: new Date(estimatedOriginAt).toISOString(),
@@ -70,18 +74,18 @@ export function AttributionControls({ aisAsset, suggestedOrigin, onRun, loading,
       <form onSubmit={handleSubmit} className="controls-card__grid controls-card__grid--attribution">
         <label>
           <span>Origin latitude</span>
-          <input type="number" step="any" value={originLatitude} onChange={(event) => setOriginLatitude(event.target.value)} disabled={disabled} required />
+          <input type="number" step="any" value={originLatitude} onChange={(event) => { setUseHindcast(false); setOriginLatitude(event.target.value); }} disabled={disabled} required />
         </label>
         <label>
           <span>Origin longitude</span>
-          <input type="number" step="any" value={originLongitude} onChange={(event) => setOriginLongitude(event.target.value)} disabled={disabled} required />
+          <input type="number" step="any" value={originLongitude} onChange={(event) => { setUseHindcast(false); setOriginLongitude(event.target.value); }} disabled={disabled} required />
         </label>
         <button type="button" className="controls-card__inline-button" onClick={applySuggestedOrigin} disabled={!suggestedOrigin}>
           <Crosshair size={14} /> Use hindcast origin
         </button>
         <label>
           <span>Estimated origin time (local)</span>
-          <input type="datetime-local" value={estimatedOriginAt} onChange={(event) => setEstimatedOriginAt(event.target.value)} disabled={disabled} required />
+          <input type="datetime-local" value={estimatedOriginAt} onChange={(event) => { setUseHindcast(false); setEstimatedOriginAt(event.target.value); }} disabled={disabled} required />
         </label>
         <label>
           <span>Search radius (km)</span>
@@ -115,6 +119,7 @@ export function AttributionControls({ aisAsset, suggestedOrigin, onRun, loading,
         </button>
       </form>
 
+      {useHindcast && <p>Including the latest saved hindcast region and approximate drift heading. Editing origin fields switches to manual ranking.</p>}
       {error && <p className="controls-card__error">{error}</p>}
     </section>
   );

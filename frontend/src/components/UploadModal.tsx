@@ -3,7 +3,7 @@ import type { FormEvent } from "react";
 import { Anchor, Satellite, Waves, X } from "lucide-react";
 
 import { api, ApiError } from "../lib/api";
-import type { IngestionResponse, SatelliteDetectionResponse, SatellitePresentation } from "../types/api";
+import type { EvidenceProvenance, IngestionResponse, SatelliteDetectionResponse, SatellitePresentation } from "../types/api";
 
 type UploadTab = "satellite" | "ais" | "environment";
 
@@ -24,19 +24,20 @@ interface UploadModalProps {
 }
 
 const TABS: { key: UploadTab; label: string; icon: typeof Satellite; hint: string }[] = [
-  { key: "satellite", label: "Satellite GeoTIFF", icon: Satellite, hint: "Real SAR/optical raster for U-Net spill segmentation." },
-  { key: "ais", label: "AIS CSV", icon: Anchor, hint: "Real AIS position export for suspect vessel ranking." },
-  { key: "environment", label: "Current / Wind CSV", icon: Waves, hint: "Real oceanographic vector observations for drift modelling." },
+  { key: "satellite", label: "Satellite GeoTIFF", icon: Satellite, hint: "SAR/optical raster for U-Net spill segmentation." },
+  { key: "ais", label: "AIS CSV", icon: Anchor, hint: "AIS position export for suspect vessel ranking." },
+  { key: "environment", label: "Current / Wind CSV", icon: Waves, hint: "Oceanographic vector observations for drift modelling." },
 ];
 
 interface TabState {
+  provenance: EvidenceProvenance;
   file: File | null;
   submitting: boolean;
   error: string | null;
   successMessage: string | null;
 }
 
-const EMPTY_TAB_STATE: TabState = { file: null, submitting: false, error: null, successMessage: null };
+const EMPTY_TAB_STATE: TabState = { provenance: { evidence_kind: "unknown", source_organization: "", source_reference: "", dataset_version: "", acquired_at: null, declared_crs: "", prior_processing: "", added_by: "" }, file: null, submitting: false, error: null, successMessage: null };
 
 export function UploadModal({
   investigationId,
@@ -53,6 +54,7 @@ export function UploadModal({
     ais: { ...EMPTY_TAB_STATE },
     environment: { ...EMPTY_TAB_STATE },
   });
+  const [minComponentPixels, setMinComponentPixels] = useState(0);
   const [threshold, setThreshold] = useState(0.5);
   const [useManualBounds, setUseManualBounds] = useState(false);
   const [bounds, setBounds] = useState({ west: "", south: "", east: "", north: "" });
@@ -68,7 +70,7 @@ export function UploadModal({
     event.preventDefault();
     const file = tabState[tab].file;
     if (!file) {
-      updateTab(tab, { error: "Choose a real evidence file before uploading." });
+      updateTab(tab, { error: "Choose an evidence file before uploading." });
       return;
     }
     updateTab(tab, { submitting: true, error: null, successMessage: null });
@@ -87,7 +89,7 @@ export function UploadModal({
           }
           manualBounds = parsed;
         }
-        const response = await api.uploadSatellite(investigationId, file, { threshold, bounds: manualBounds });
+        const response = await api.uploadSatellite(investigationId, file, { threshold, minComponentPixels, bounds: manualBounds, provenance: tabState[tab].provenance });
         const detectedBounds = manualBounds
           ? ([manualBounds.west, manualBounds.south, manualBounds.east, manualBounds.north] as [number, number, number, number])
           : null;
@@ -99,14 +101,14 @@ export function UploadModal({
         });
         updateTab(tab, {
           submitting: false,
-          successMessage: `Segmented ${response.validation.component_count as number} spill component(s) from the real raster.`,
+          successMessage: `Segmented ${response.validation.component_count as number} spill component(s) from the uploaded raster.`,
         });
       } else if (tab === "ais") {
-        const response = await api.uploadAis(investigationId, file);
+        const response = await api.uploadAis(investigationId, file, tabState[tab].provenance);
         onAisUploaded(response);
         updateTab(tab, { submitting: false, successMessage: `AIS evidence stored (${response.asset.byte_size.toLocaleString()} bytes).` });
       } else {
-        const response = await api.uploadEnvironment(investigationId, file);
+        const response = await api.uploadEnvironment(investigationId, file, tabState[tab].provenance);
         onEnvironmentUploaded(response);
         updateTab(tab, { submitting: false, successMessage: `Environmental evidence stored (${response.asset.byte_size.toLocaleString()} bytes).` });
       }
@@ -149,7 +151,7 @@ export function UploadModal({
             <form key={key} className="modal__form" onSubmit={(event) => void handleSubmit(event, key)}>
               <p className="modal__hint">{hint}</p>
               <label className="modal__file-label">
-                <span>Real data file{accepted.length > 0 ? ` (${accepted.join(", ")})` : ""}</span>
+                <span>Evidence file{accepted.length > 0 ? ` (${accepted.join(", ")})` : ""}</span>
                 <input
                   type="file"
                   accept={accepted.join(",")}
@@ -157,8 +159,39 @@ export function UploadModal({
                 />
               </label>
 
+              <fieldset className="provenance-form" disabled={state.submitting}>
+                <legend>Evidence provenance</legend>
+                <p>These are uploader declarations, not independently verified facts. Leave unknown details blank.</p>
+                <label>Evidence type
+                  <select value={state.provenance.evidence_kind} onChange={(event) => updateTab(key, { provenance: { ...state.provenance, evidence_kind: event.target.value as EvidenceProvenance["evidence_kind"] } })}>
+                    <option value="unknown">Not recorded / unknown</option>
+                    <option value="real">Real observations (declared)</option>
+                    <option value="synthetic">Synthetic / demonstration</option>
+                  </select>
+                </label>
+                {([
+                  ["source_organization", "Source organization", 200],
+                  ["source_reference", "Source URL, DOI or reference", 500],
+                  ["dataset_version", "Dataset / version", 200],
+                  ["declared_crs", "Coordinate reference system (declared)", 120],
+                  ["added_by", "Added by (self-reported; not authenticated)", 200],
+                ] as const).map(([field, label, maxLength]) => (
+                  <label key={field}>{label}<input type="text" maxLength={maxLength} value={state.provenance[field]} onChange={(event) => updateTab(key, { provenance: { ...state.provenance, [field]: event.target.value } })} /></label>
+                ))}
+                <label>Acquisition timestamp (UTC)
+                  <input type="datetime-local" value={state.provenance.acquired_at?.slice(0, 16) ?? ""} onChange={(event) => updateTab(key, { provenance: { ...state.provenance, acquired_at: event.target.value ? `${event.target.value}:00Z` : null } })} />
+                </label>
+                <label>Processing before upload
+                  <textarea maxLength={2000} value={state.provenance.prior_processing} onChange={(event) => updateTab(key, { provenance: { ...state.provenance, prior_processing: event.target.value } })} />
+                </label>
+              </fieldset>
+
               {key === "satellite" && (
                 <>
+                  <label>Minimum spill component size (pixels)
+                    <input type="number" min={0} max={1000000} step={1} required value={minComponentPixels} onChange={(event) => setMinComponentPixels(Number(event.target.value))} />
+                    <small>0 disables cleanup. Small real spills may also be removed; compare with the unfiltered result.</small>
+                  </label>
                   <label className="modal__slider-label">
                     <span>Segmentation threshold ({threshold.toFixed(2)})</span>
                     <input
@@ -204,7 +237,7 @@ export function UploadModal({
               {state.successMessage && <p className="modal__message modal__message--success">{state.successMessage}</p>}
 
               <button type="submit" className="modal__submit" disabled={state.submitting}>
-                {state.submitting ? "Uploading real data…" : "Upload to SeaScan backend"}
+                {state.submitting ? "Uploading evidence…" : "Upload to SeaScan backend"}
               </button>
             </form>
           );

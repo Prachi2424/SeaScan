@@ -28,7 +28,7 @@ export default function App() {
   const [status, setStatus] = useState<ConnectionStatus>("checking");
   const [config, setConfig] = useState<SystemConfigResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<ViewKey>("overview");
+  const [view, setView] = useState<ViewKey>(() => new URLSearchParams(window.location.search).has("case") ? "workspace" : "overview");
 
   const refreshConnection = useCallback(async () => {
     setStatus("checking");
@@ -50,7 +50,7 @@ export default function App() {
   }, [refreshConnection]);
 
   useEffect(() => {
-    if (status !== "online" && view === "workspace") setView("overview");
+    if (status === "offline" && view === "workspace") setView("overview");
   }, [status, view]);
 
   const navigation: { key: ViewKey; label: string; icon: typeof Radar; disabled: boolean }[] = [
@@ -78,7 +78,7 @@ export default function App() {
           ))}
         </nav>
         <div className="sidebar-footer">
-          <p>REAL-DATA MODE</p>
+          <p>EVIDENCE MODE</p>
           <span><StatusDot status={status} /> API {status}</span>
         </div>
       </aside>
@@ -179,7 +179,7 @@ function OverviewView({
 
       {config && (
         <section className="config-panel" aria-labelledby="config-title">
-          <div><p className="eyebrow">Evidence compatibility</p><h2 id="config-title">Validated real-data inputs</h2></div>
+          <div><p className="eyebrow">Evidence compatibility</p><h2 id="config-title">Supported evidence formats</h2></div>
           <div className="format-groups">
             <FormatGroup label="Satellite" formats={config.accepted_satellite_formats} />
             <FormatGroup label="AIS" formats={config.accepted_ais_formats} />

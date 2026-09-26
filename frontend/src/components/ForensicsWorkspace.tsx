@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { Download, FileArchive, FolderPlus, Satellite, ShieldCheck, UploadCloud, Waves } from "lucide-react";
 
 import { api, ApiError } from "../lib/api";
 import { computeCentroid } from "../lib/geo";
 import type {
+  ReleaseScenarioResponse,
+  EvidenceAsset,
   AttributionRequest,
   AttributionResponse,
   DriftRequest,
@@ -22,6 +24,9 @@ import type { FlowStageKey } from "./IntelligenceFlowGraph";
 import { MaritimeMap } from "./MaritimeMap";
 import { ForensicStory } from "./ForensicStory";
 import { SuspectVesselPanel } from "./SuspectVesselPanel";
+import { EvidenceProvenancePanel } from "./EvidenceProvenancePanel";
+import { ReleaseScenarios } from "./ReleaseScenarios";
+import { AnalysisWorkflow } from "./AnalysisWorkflow";
 import { UploadModal } from "./UploadModal";
 
 interface ForensicsWorkspaceProps {
@@ -53,6 +58,9 @@ function extractHindcastOrigin(drift: DriftResponse): { latitude: number; longit
 export function ForensicsWorkspace({ acceptedFormats }: ForensicsWorkspaceProps) {
   const [investigations, setInvestigations] = useState<InvestigationSummary[]>([]);
   const [investigation, setInvestigation] = useState<InvestigationSummary | null>(null);
+  const restoreVersion = useRef(0);
+  const [restoring, setRestoring] = useState(false);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
   const [listLoading, setListLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
 
@@ -60,9 +68,11 @@ export function ForensicsWorkspace({ acceptedFormats }: ForensicsWorkspaceProps)
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
+  const [evidenceAssets, setEvidenceAssets] = useState<EvidenceAsset[]>([]);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [satellite, setSatellite] = useState<SatelliteDetectionResponse | null>(null);
   const [satellitePresentation, setSatellitePresentation] = useState<SatellitePresentation | null>(null);
+  const satellitePresentationRef = useRef<SatellitePresentation | null>(null);
   const [aisAsset, setAisAsset] = useState<IngestionResponse | null>(null);
   const [environmentAsset, setEnvironmentAsset] = useState<IngestionResponse | null>(null);
 
@@ -79,11 +89,11 @@ export function ForensicsWorkspace({ acceptedFormats }: ForensicsWorkspaceProps)
 
   const [selectedMmsi, setSelectedMmsi] = useState<string | null>(null);
   const [reportLoading, setReportLoading] = useState<"pdf" | "package" | null>(null);
+  const [scenarioBusy, setScenarioBusy] = useState(false);
+  const [scenarios, setScenarios] = useState<ReleaseScenarioResponse | null>(null);
+  const [workflowBusy, setWorkflowBusy] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
 
-  useEffect(() => {
-    void loadInvestigations();
-  }, []);
 
   async function loadInvestigations() {
     setListLoading(true);
@@ -97,9 +107,12 @@ export function ForensicsWorkspace({ acceptedFormats }: ForensicsWorkspaceProps)
     }
   }
 
-  function resetPipelineState() {
-    if (satellitePresentation?.imageUrl) URL.revokeObjectURL(satellitePresentation.imageUrl);
-    if (satellitePresentation?.groundTruthUrl) URL.revokeObjectURL(satellitePresentation.groundTruthUrl);
+  const resetPipelineState = useCallback(() => {
+    if (satellitePresentationRef.current?.imageUrl) URL.revokeObjectURL(satellitePresentationRef.current.imageUrl);
+    if (satellitePresentationRef.current?.groundTruthUrl) URL.revokeObjectURL(satellitePresentationRef.current.groundTruthUrl);
+    satellitePresentationRef.current = null;
+    setScenarios(null);
+    setEvidenceAssets([]);
     setSatellite(null);
     setSatellitePresentation(null);
     setAisAsset(null);
@@ -111,7 +124,7 @@ export function ForensicsWorkspace({ acceptedFormats }: ForensicsWorkspaceProps)
     setBackwardError(null);
     setForwardError(null);
     setAttributionError(null);
-  }
+  }, []);
 
   async function handleCreateInvestigation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -125,6 +138,7 @@ export function ForensicsWorkspace({ acceptedFormats }: ForensicsWorkspaceProps)
       const created = await api.createInvestigation({ title: newTitle.trim() });
       setInvestigations((previous) => [created, ...previous]);
       setInvestigation(created);
+      rememberCase(created.id);
       setNewTitle("");
       resetPipelineState();
     } catch (error) {
@@ -134,11 +148,53 @@ export function ForensicsWorkspace({ acceptedFormats }: ForensicsWorkspaceProps)
     }
   }
 
-  function handleSelectInvestigation(id: string) {
-    const found = investigations.find((item) => item.id === id) ?? null;
-    setInvestigation(found);
-    resetPipelineState();
+  function rememberCase(id: string | null) {
+    const url = new URL(window.location.href);
+    if (id) url.searchParams.set("case", id);
+    else url.searchParams.delete("case");
+    window.history.replaceState(null, "", url);
   }
+
+  const handleSelectInvestigation = useCallback(async (id: string) => {
+    const version = ++restoreVersion.current;
+    setRestoring(true);
+    setRestoreError(null);
+    setInvestigation(null);
+    resetPipelineState();
+    try {
+      const detail = await api.getInvestigation(id);
+      if (version !== restoreVersion.current) return;
+      setEvidenceAssets(detail.assets);
+      const stored = detail.analyses ?? {};
+      const asset = (type: "ais" | "environment") => {
+        const item = detail.assets.find((entry) => entry.asset_type === type);
+        return item ? { asset: item, validation: item.metadata } : null;
+      };
+      setScenarios(stored.release_scenarios ?? null);
+      setSatellite(stored.satellite_detection ?? null);
+      setAisAsset(asset("ais"));
+      setEnvironmentAsset(asset("environment"));
+      setBackwardDrift(stored.drift_backward ?? null);
+      setForwardDrift(stored.drift_forward ?? null);
+      setAttribution(stored.attribution ?? null);
+      setSelectedMmsi(stored.attribution?.candidates[0]?.mmsi ?? null);
+      setInvestigation(detail);
+      rememberCase(id);
+    } catch (error) {
+      if (version !== restoreVersion.current) return;
+      setRestoreError(describeError(error));
+    } finally {
+      if (version === restoreVersion.current) setRestoring(false);
+    }
+  }, [resetPipelineState]);
+
+  useEffect(() => {
+    void loadInvestigations();
+    const id = new URLSearchParams(window.location.search).get("case");
+    if (id) void handleSelectInvestigation(id);
+    return () => { restoreVersion.current += 1; };
+  }, [handleSelectInvestigation]);
+
 
   async function handleRunBackward(payload: DriftRequest) {
     setBackwardLoading(true);
@@ -178,7 +234,12 @@ export function ForensicsWorkspace({ acceptedFormats }: ForensicsWorkspaceProps)
     }
   }
 
-  const spillCentroid = useMemo(() => (satellite ? computeCentroid(satellite.geojson) : null), [satellite]);
+  const spillCentroid = useMemo<[number, number] | null>(() => {
+    if (!satellite) return null;
+    const metrics = satellite.validation.geometry_metrics as { centroid?: number[] } | undefined;
+    if (metrics?.centroid?.length === 2) return [metrics.centroid[1], metrics.centroid[0]];
+    return computeCentroid(satellite.geojson);
+  }, [satellite]);
   const suggestedOrigin = useMemo(() => (backwardDrift ? extractHindcastOrigin(backwardDrift) : null), [backwardDrift]);
 
   const completedStages = useMemo<Set<FlowStageKey>>(() => {
@@ -211,6 +272,8 @@ export function ForensicsWorkspace({ acceptedFormats }: ForensicsWorkspaceProps)
     }
   }
 
+  if (restoring) return <p role="status">Restoring saved investigation…</p>;
+
   if (!investigation) {
     return (
       <section className="investigation-gate" aria-labelledby="investigation-gate-title">
@@ -219,6 +282,7 @@ export function ForensicsWorkspace({ acceptedFormats }: ForensicsWorkspaceProps)
           <h2 id="investigation-gate-title">Open or start an investigation</h2>
           <p>Every upload, drift run, and suspect ranking below is attached to a real investigation record on the SeaScan backend.</p>
 
+          {restoreError && <p role="alert">Could not restore investigation: {restoreError}</p>}
           {listLoading && <p className="investigation-gate__status">Loading existing investigations…</p>}
           {listError && <p className="investigation-gate__status investigation-gate__status--error">{listError}</p>}
 
@@ -268,16 +332,16 @@ export function ForensicsWorkspace({ acceptedFormats }: ForensicsWorkspaceProps)
           <h2>{investigation.title}</h2>
         </div>
         <div className="forensics-workspace__header-actions">
-          <button type="button" className="secondary-button" onClick={() => void handleReportDownload("pdf")} disabled={reportLoading !== null}>
+          <button type="button" className="secondary-button" onClick={() => void handleReportDownload("pdf")} disabled={scenarioBusy || workflowBusy || reportLoading !== null}>
             <Download size={16} /> {reportLoading === "pdf" ? "Building PDF…" : "Export PDF"}
           </button>
-          <button type="button" className="secondary-button" onClick={() => void handleReportDownload("package")} disabled={reportLoading !== null}>
+          <button type="button" className="secondary-button" onClick={() => void handleReportDownload("package")} disabled={scenarioBusy || workflowBusy || reportLoading !== null}>
             <FileArchive size={16} /> {reportLoading === "package" ? "Packaging…" : "Evidence package"}
           </button>
-          <button type="button" className="secondary-button" onClick={() => setInvestigation(null)}>
+          <button type="button" className="secondary-button" disabled={scenarioBusy || workflowBusy || backwardLoading || forwardLoading || attributionLoading || reportLoading !== null} onClick={() => { rememberCase(null); setInvestigation(null); resetPipelineState(); void loadInvestigations(); }}>
             Switch investigation
           </button>
-          <button type="button" className="primary-button" onClick={() => setUploadOpen(true)}>
+          <button type="button" className="primary-button" disabled={scenarioBusy || workflowBusy} onClick={() => setUploadOpen(true)}>
             <UploadCloud size={16} /> Upload evidence
           </button>
         </div>
@@ -297,10 +361,31 @@ export function ForensicsWorkspace({ acceptedFormats }: ForensicsWorkspaceProps)
         </span>
       </div>
 
+      {((backwardDrift && !backwardDrift.parameters) || (forwardDrift && !forwardDrift.parameters) || (attribution && !attribution.parameters)) && (
+        <p role="note">This older case did not record every analysis setting. Saved results are restored; unrecorded settings use defaults or the hindcast suggestion. Review them before running again.</p>
+      )}
+
+      <EvidenceProvenancePanel assets={evidenceAssets} />
+
+      <AnalysisWorkflow
+        key={`${investigation.id}:${satellite?.asset.id}:${environmentAsset?.asset.id}:${aisAsset?.asset.id}`}
+        satellite={satellite} environment={environmentAsset} ais={aisAsset} centroid={spillCentroid}
+        disabled={scenarioBusy || backwardLoading || forwardLoading || attributionLoading || reportLoading !== null || uploadOpen}
+        onBusy={setWorkflowBusy} onBackward={setBackwardDrift} onForward={setForwardDrift}
+        onAttribution={(result) => { setAttribution(result); setSelectedMmsi(result.candidates[0]?.mmsi ?? null); }}
+      />
+
+      <ReleaseScenarios key={investigation.id} environmentId={environmentAsset?.asset.id} aisId={aisAsset?.asset.id}
+        centroid={spillCentroid} result={scenarios} onResult={setScenarios} onBusy={setScenarioBusy}
+        disabled={workflowBusy || backwardLoading || forwardLoading || attributionLoading || reportLoading !== null || uploadOpen} />
+
       <IntelligenceFlowGraph completedStages={completedStages} activeStage={activeStage} />
 
-      <div className="controls-row">
+      <fieldset className="controls-row workflow-fields" disabled={scenarioBusy || workflowBusy}>
         <DriftControls
+          key={investigation.id}
+          savedBackward={backwardDrift}
+          savedForward={forwardDrift}
           environmentAsset={environmentAsset}
           spillCentroid={spillCentroid}
           onRunBackward={(payload) => void handleRunBackward(payload)}
@@ -310,15 +395,18 @@ export function ForensicsWorkspace({ acceptedFormats }: ForensicsWorkspaceProps)
           backwardError={backwardError}
           forwardError={forwardError}
           backwardResult={backwardDrift}
+          forwardResult={forwardDrift}
         />
         <AttributionControls
+          key={investigation.id}
+          savedParameters={attribution?.parameters}
           aisAsset={aisAsset}
           suggestedOrigin={suggestedOrigin}
           onRun={(payload) => void handleRunAttribution(payload)}
           loading={attributionLoading}
           error={attributionError}
         />
-      </div>
+      </fieldset>
 
       <div className="dashboard-grid">
         <MaritimeMap
@@ -327,6 +415,7 @@ export function ForensicsWorkspace({ acceptedFormats }: ForensicsWorkspaceProps)
             bounds: satellitePresentation?.bounds ?? null,
             imageUrl: satellitePresentation?.imageUrl ?? null,
             groundTruthUrl: satellitePresentation?.groundTruthUrl ?? null,
+            centroid: spillCentroid,
           } : null}
           backwardDrift={backwardDrift}
           forwardDrift={forwardDrift}
@@ -359,13 +448,15 @@ export function ForensicsWorkspace({ acceptedFormats }: ForensicsWorkspaceProps)
         onClose={() => setUploadOpen(false)}
         acceptedFormats={acceptedFormats}
         onSatelliteUploaded={(response, presentation) => {
-          if (satellitePresentation?.imageUrl) URL.revokeObjectURL(satellitePresentation.imageUrl);
-          if (satellitePresentation?.groundTruthUrl) URL.revokeObjectURL(satellitePresentation.groundTruthUrl);
+          if (satellitePresentationRef.current?.imageUrl) URL.revokeObjectURL(satellitePresentationRef.current.imageUrl);
+          if (satellitePresentationRef.current?.groundTruthUrl) URL.revokeObjectURL(satellitePresentationRef.current.groundTruthUrl);
+          satellitePresentationRef.current = presentation;
           setSatellite(response);
           setSatellitePresentation(presentation);
+          setEvidenceAssets((assets) => [response.asset, ...assets]);
         }}
-        onAisUploaded={setAisAsset}
-        onEnvironmentUploaded={setEnvironmentAsset}
+        onAisUploaded={(response) => { setAisAsset(response); setEvidenceAssets((assets) => [response.asset, ...assets]); }}
+        onEnvironmentUploaded={(response) => { setEnvironmentAsset(response); setEvidenceAssets((assets) => [response.asset, ...assets]); }}
       />
     </section>
   );

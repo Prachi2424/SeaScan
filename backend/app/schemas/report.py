@@ -16,6 +16,7 @@ class ForensicReportRequest(BaseModel):
 class ReportAnalysisBundle(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    release_scenarios: dict[str, object] | None = None
     spill_geojson: dict[str, object] | None = None
     satellite_validation: dict[str, object] | None = None
     backward_drift: DriftResponse | None = None

@@ -19,6 +19,7 @@ def _report_data(connection: sqlite3.Connection, investigation_id: str) -> Repor
     stored = latest_analysis_results(connection, investigation_id)
     satellite = stored.get("satellite_detection")
     return ReportAnalysisBundle(
+        release_scenarios=stored.get("release_scenarios"),
         spill_geojson=satellite.get("geojson") if satellite else None,
         satellite_validation=satellite.get("validation") if satellite else None,
         backward_drift=DriftResponse.model_validate(stored["drift_backward"]) if "drift_backward" in stored else None,

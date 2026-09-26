@@ -34,6 +34,17 @@ export interface InvestigationSummary {
 
 export type AssetType = "satellite" | "ais" | "environment";
 
+export interface EvidenceProvenance {
+  evidence_kind: "real" | "synthetic" | "unknown";
+  source_organization: string;
+  source_reference: string;
+  dataset_version: string;
+  acquired_at: string | null;
+  declared_crs: string;
+  prior_processing: string;
+  added_by: string;
+}
+
 export interface EvidenceAsset {
   id: string;
   investigation_id: string;
@@ -48,6 +59,13 @@ export interface EvidenceAsset {
 
 export interface InvestigationDetail extends InvestigationSummary {
   assets: EvidenceAsset[];
+  analyses: {
+    release_scenarios?: ReleaseScenarioResponse;
+    satellite_detection?: SatelliteDetectionResponse;
+    drift_backward?: DriftResponse;
+    drift_forward?: DriftResponse;
+    attribution?: AttributionResponse;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -89,6 +107,7 @@ export interface DriftRequest {
 }
 
 export interface DriftResponse {
+  parameters?: DriftRequest | null;
   direction: "forward" | "backward";
   seed: Record<string, unknown>;
   trajectory: GeoJSON.FeatureCollection;
@@ -101,6 +120,7 @@ export interface DriftResponse {
 // ---------------------------------------------------------------------------
 
 export interface AttributionRequest {
+  use_hindcast_region?: boolean;
   ais_asset_id: string;
   origin_latitude: number;
   origin_longitude: number;
@@ -120,7 +140,13 @@ export interface ScoreBreakdown {
 }
 
 export interface CandidateEvidence {
-  closest_observed_distance_km: number;
+  closest_observed_distance_km: number | null;
+  closest_approach_distance_km?: number;
+  closest_approach_at?: string;
+  closest_approach_interpolated?: boolean;
+  origin_region_intersection?: boolean | null;
+  heading_alignment?: number | null;
+  warnings?: string[];
   positions_in_time_window: number;
   behavior: {
     speed_drop: boolean | null;
@@ -129,7 +155,7 @@ export interface CandidateEvidence {
     median_speed_knots?: number;
     reason?: string;
   };
-  maximum_ais_gap_minutes: number;
+  maximum_ais_gap_minutes: number | null;
   score_note: string;
 }
 
@@ -152,6 +178,9 @@ export interface VesselTrackPosition {
 }
 
 export interface AttributionResponse {
+  excluded_vessels?: { mmsi: string; reason: string }[];
+  ranking_version?: string;
+  parameters?: AttributionRequest | null;
   disclaimer: string;
   candidate_count: number;
   scoring_formula: Record<string, number>;
@@ -164,4 +193,25 @@ export interface AttributionResponse {
 
 export interface ForensicReportRequest {
   investigation_id: string;
+}
+
+export interface ReleaseScenarioRequest {
+  drift: DriftRequest;
+  ais_asset_id: string;
+  durations_hours: number[];
+  search_radius_km: number;
+  temporal_window_minutes: number;
+}
+export interface ReleaseScenarioResponse {
+  parameters: ReleaseScenarioRequest;
+  disclaimer: string;
+  scenarios: {
+    duration_hours: number;
+    status: string;
+    error?: string;
+    origin?: GeoJSON.Feature<GeoJSON.Point>;
+    candidate_count?: number;
+    candidates?: CandidateVessel[];
+    sampling?: { warnings?: string[] };
+  }[];
 }

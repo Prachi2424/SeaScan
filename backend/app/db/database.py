@@ -42,6 +42,16 @@ CREATE TABLE IF NOT EXISTS analysis_results (
     FOREIGN KEY(investigation_id) REFERENCES investigations(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS release_scenario_results (
+    id TEXT PRIMARY KEY,
+    investigation_id TEXT NOT NULL,
+    result_type TEXT NOT NULL CHECK(result_type = 'release_scenarios'),
+    payload_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(investigation_id) REFERENCES investigations(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_release_scenarios_case ON release_scenario_results(investigation_id, created_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_analysis_investigation_type
 ON analysis_results(investigation_id, result_type, created_at DESC);
 """

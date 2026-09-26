@@ -27,3 +27,6 @@ data/processed/*
 # Generated report QA artifacts
 tmp/
 output/
+
+# Machine-local Python environment
+.venv-local/

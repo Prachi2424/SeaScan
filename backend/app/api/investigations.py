@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, status
 
 from app.db.database import get_connection
 from app.schemas.investigation import InvestigationCreate, InvestigationDetail, InvestigationSummary
-from app.services.investigations import create_investigation, get_investigation, list_investigations
+from app.services.investigations import create_investigation, get_investigation, list_investigations, latest_analysis_results
 
 router = APIRouter(prefix="/investigations", tags=["investigations"])
 DatabaseConnection = Annotated[sqlite3.Connection, Depends(get_connection)]
@@ -25,4 +25,6 @@ def list_all(connection: DatabaseConnection) -> list[InvestigationSummary]:
 
 @router.get("/{investigation_id}", response_model=InvestigationDetail)
 def get_one(investigation_id: str, connection: DatabaseConnection) -> InvestigationDetail:
-    return get_investigation(connection, investigation_id)
+    detail = get_investigation(connection, investigation_id)
+    detail.analyses = latest_analysis_results(connection, investigation_id)
+    return detail
