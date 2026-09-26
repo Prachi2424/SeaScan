@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     processed_directory: Path = Path("../data/processed")
     model_weights_path: Path | None = None
     max_upload_size_mb: int = Field(default=512, ge=1, le=4096)
+    auth_session_hours: int = Field(default=8, ge=1, le=168)
+    demo_user_password: str = Field(default="SeaScan@2026", min_length=12)
+    bootstrap_admin_password: str | None = Field(default=None, min_length=12)
 
     @property
     def project_data_directories(self) -> tuple[Path, Path]:

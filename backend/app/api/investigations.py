@@ -8,13 +8,15 @@ from fastapi import APIRouter, Depends, status
 from app.db.database import get_connection
 from app.schemas.investigation import InvestigationCreate, InvestigationDetail, InvestigationSummary
 from app.services.investigations import create_investigation, get_investigation, list_investigations, latest_analysis_results
+from app.auth.dependencies import require_roles
+from app.schemas.auth import AuthUser
 
 router = APIRouter(prefix="/investigations", tags=["investigations"])
 DatabaseConnection = Annotated[sqlite3.Connection, Depends(get_connection)]
 
 
 @router.post("", response_model=InvestigationSummary, status_code=status.HTTP_201_CREATED)
-def create(payload: InvestigationCreate, connection: DatabaseConnection) -> InvestigationSummary:
+def create(payload: InvestigationCreate, connection: DatabaseConnection, _: Annotated[AuthUser, Depends(require_roles("investigator", "administrator"))]) -> InvestigationSummary:
     return create_investigation(connection, payload)
 
 

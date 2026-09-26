@@ -2,3 +2,4 @@
 testpaths = ["backend/tests"]
 pythonpath = ["backend"]
 addopts = "-p no:cacheprovider"
+markers = ["real_auth: exercise the real authentication dependency instead of the legacy test override"]

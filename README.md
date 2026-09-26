@@ -127,6 +127,16 @@ docker-compose up --build
 # REST API Documentation: http://localhost:8000/docs
 ```
 
+### Authentication and roles
+
+SeaScan protects investigation, evidence, analysis, and report APIs with expiring bearer sessions. Passwords are stored as salted PBKDF2-SHA256 hashes; raw session tokens are never stored in the database.
+
+- **Investigator:** creates cases, uploads evidence, runs analyses, and exports reports.
+- **Analyst:** opens existing cases, runs or reviews analyses, and exports reports. Analysts cannot create cases or upload evidence.
+- **Administrator:** has full operational access and can create, disable, enable, or reassign user accounts.
+
+Development mode creates `investigator`, `analyst`, and `admin` demonstration accounts using `SEASCAN_DEMO_USER_PASSWORD`. For a non-development first startup, set a strong `SEASCAN_BOOTSTRAP_ADMIN_PASSWORD`; SeaScan will refuse to create an insecure default production administrator.
+
 ## Tiled satellite inference
 
 Tests generate temporary, untrained checkpoint fixtures exclusively to verify

@@ -54,6 +54,29 @@ CREATE INDEX IF NOT EXISTS idx_release_scenarios_case ON release_scenario_result
 
 CREATE INDEX IF NOT EXISTS idx_analysis_investigation_type
 ON analysis_results(investigation_id, result_type, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    display_name TEXT NOT NULL,
+    role TEXT NOT NULL CHECK(role IN ('investigator', 'analyst', 'administrator')),
+    password_hash TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1)),
+    created_at TEXT NOT NULL,
+    created_by TEXT
+);
+
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    id TEXT PRIMARY KEY,
+    token_hash TEXT NOT NULL UNIQUE,
+    user_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_expiry ON auth_sessions(expires_at);
 """
 
 
@@ -63,6 +86,33 @@ def initialize_database() -> None:
     database_path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(database_path) as connection:
         connection.executescript(SCHEMA)
+        if settings.environment.lower() == "development":
+            _seed_demo_users(connection, settings.demo_user_password)
+        elif connection.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
+            if not settings.bootstrap_admin_password:
+                raise RuntimeError("Set SEASCAN_BOOTSTRAP_ADMIN_PASSWORD for the first production startup.")
+            _seed_users(connection, (("admin", "SeaScan Administrator", "administrator"),), settings.bootstrap_admin_password)
+
+
+def _seed_demo_users(connection: sqlite3.Connection, password: str) -> None:
+    _seed_users(connection, (
+        ("investigator", "Ira Investigator", "investigator"),
+        ("analyst", "Arun Analyst", "analyst"),
+        ("admin", "Aditi Administrator", "administrator"),
+    ), password)
+
+
+def _seed_users(connection: sqlite3.Connection, accounts: tuple[tuple[str, str, str], ...], password: str) -> None:
+    import uuid
+    from datetime import UTC, datetime
+    from app.auth.security import hash_password
+    now = datetime.now(UTC).isoformat()
+    for username, display_name, role in accounts:
+        if connection.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone() is None:
+            connection.execute(
+                "INSERT INTO users (id, username, display_name, role, password_hash, active, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)",
+                (str(uuid.uuid4()), username, display_name, role, hash_password(password), now),
+            )
 
 
 def get_connection() -> Generator[sqlite3.Connection, None, None]:

@@ -14,9 +14,28 @@ import type {
   InvestigationSummary,
   SatelliteDetectionResponse,
   SystemConfigResponse,
+  AuthUser,
+  LoginResponse,
+  UserCreate,
+  UserRole,
 } from "../types/api";
 
 const baseUrl = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
+const TOKEN_KEY = "seascan.auth.token";
+
+export function getAuthToken(): string | null {
+  return window.localStorage.getItem(TOKEN_KEY);
+}
+
+export function setAuthToken(token: string | null): void {
+  if (token) window.localStorage.setItem(TOKEN_KEY, token);
+  else window.localStorage.removeItem(TOKEN_KEY);
+}
+
+function authorizationHeader(): Record<string, string> {
+  const token = getAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 export class ApiError extends Error {
   status: number;
@@ -48,7 +67,7 @@ async function parseErrorDetail(response: Response): Promise<string> {
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${baseUrl}${path}`, {
     ...init,
-    headers: { Accept: "application/json", ...(init?.headers ?? {}) },
+    headers: { Accept: "application/json", ...authorizationHeader(), ...(init?.headers ?? {}) },
   });
   if (!response.ok) {
     throw new ApiError(response.status, await parseErrorDetail(response));
@@ -59,7 +78,7 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 async function requestDownload(path: string, payload: ForensicReportRequest): Promise<{ blob: Blob; filename: string }> {
   const response = await fetch(`${baseUrl}${path}`, {
     method: "POST",
-    headers: { Accept: path.endsWith(".pdf") ? "application/pdf" : "application/zip", "Content-Type": "application/json" },
+    headers: { Accept: path.endsWith(".pdf") ? "application/pdf" : "application/zip", "Content-Type": "application/json", ...authorizationHeader() },
     body: JSON.stringify(payload),
   });
   if (!response.ok) throw new ApiError(response.status, await parseErrorDetail(response));
@@ -97,6 +116,32 @@ function health(): Promise<HealthResponse> {
 
 function systemConfig(): Promise<SystemConfigResponse> {
   return requestJson<SystemConfigResponse>("/api/system/config");
+}
+
+function login(username: string, password: string): Promise<LoginResponse> {
+  return requestJson<LoginResponse>("/api/auth/login", toJsonBody({ username, password }));
+}
+
+function me(): Promise<AuthUser> {
+  return requestJson<AuthUser>("/api/auth/me");
+}
+
+function logout(): Promise<void> {
+  return fetch(`${baseUrl}/api/auth/logout`, { method: "POST", headers: authorizationHeader() }).then((response) => {
+    if (!response.ok && response.status !== 401) throw new ApiError(response.status, "Logout failed.");
+  });
+}
+
+function listUsers(): Promise<AuthUser[]> {
+  return requestJson<AuthUser[]>("/api/auth/users");
+}
+
+function createUser(payload: UserCreate): Promise<AuthUser> {
+  return requestJson<AuthUser>("/api/auth/users", toJsonBody(payload));
+}
+
+function updateUser(userId: string, payload: { role?: UserRole; active?: boolean }): Promise<AuthUser> {
+  return requestJson<AuthUser>(`/api/auth/users/${encodeURIComponent(userId)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
 }
 
 // ---------------------------------------------------------------------------
@@ -194,6 +239,12 @@ export const api = {
   releaseScenarios: (payload: ReleaseScenarioRequest) => requestJson<ReleaseScenarioResponse>("/api/release-scenarios", toJsonBody(payload)),
   health,
   systemConfig,
+  login,
+  me,
+  logout,
+  listUsers,
+  createUser,
+  updateUser,
   createInvestigation,
   listInvestigations,
   getInvestigation,

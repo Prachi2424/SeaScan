@@ -15,6 +15,31 @@ export interface SystemConfigResponse {
   satellite_inference_ready: boolean;
 }
 
+export type UserRole = "investigator" | "analyst" | "administrator";
+
+export interface AuthUser {
+  id: string;
+  username: string;
+  display_name: string;
+  role: UserRole;
+  active: boolean;
+  created_at: string;
+}
+
+export interface LoginResponse {
+  access_token: string;
+  token_type: "bearer";
+  expires_at: string;
+  user: AuthUser;
+}
+
+export interface UserCreate {
+  username: string;
+  display_name: string;
+  role: UserRole;
+  password: string;
+}
+
 // ---------------------------------------------------------------------------
 // Investigations
 // ---------------------------------------------------------------------------

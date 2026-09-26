@@ -13,21 +13,28 @@ import {
   Server,
   Ship,
   ShipWheel,
+  LogOut,
+  UsersRound,
   Waves,
 } from "lucide-react";
 
 import { StatusDot } from "./components/StatusDot";
 import { ForensicsWorkspace } from "./components/ForensicsWorkspace";
-import { api } from "./lib/api";
-import type { SystemConfigResponse } from "./types/api";
+import { AuthScreen } from "./components/AuthScreen";
+import { AdminPanel } from "./components/AdminPanel";
+import { ModelProvenanceControl } from "./components/ModelProvenanceModal";
+import { api, getAuthToken, setAuthToken } from "./lib/api";
+import type { AuthUser, SystemConfigResponse } from "./types/api";
 
 type ConnectionStatus = "online" | "offline" | "checking";
-type ViewKey = "overview" | "workspace";
+type ViewKey = "overview" | "workspace" | "administration";
 
 export default function App() {
   const [status, setStatus] = useState<ConnectionStatus>("checking");
   const [config, setConfig] = useState<SystemConfigResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [authChecking, setAuthChecking] = useState(true);
   const [view, setView] = useState<ViewKey>(() => new URLSearchParams(window.location.search).has("case") ? "workspace" : "overview");
 
   const refreshConnection = useCallback(async () => {
@@ -47,6 +54,9 @@ export default function App() {
 
   useEffect(() => {
     void refreshConnection();
+    const token = getAuthToken();
+    if (!token) { setAuthChecking(false); return; }
+    void api.me().then(setCurrentUser).catch(() => setAuthToken(null)).finally(() => setAuthChecking(false));
   }, [refreshConnection]);
 
   useEffect(() => {
@@ -56,7 +66,21 @@ export default function App() {
   const navigation: { key: ViewKey; label: string; icon: typeof Radar; disabled: boolean }[] = [
     { key: "overview", label: "Overview", icon: Compass, disabled: false },
     { key: "workspace", label: "Investigation Workspace", icon: Radar, disabled: status !== "online" },
+    ...(currentUser?.role === "administrator" ? [{ key: "administration" as const, label: "User Administration", icon: UsersRound, disabled: status !== "online" }] : []),
   ];
+
+  async function signOut() {
+    try { await api.logout(); } finally {
+      setAuthToken(null);
+      setCurrentUser(null);
+      setView("overview");
+    }
+  }
+
+  if (authChecking || status === "checking") return <div className="auth-loading"><ShipWheel size={32} /><span>Establishing secure SeaScan session…</span></div>;
+  if (status === "online" && !currentUser) return <AuthScreen onAuthenticated={setCurrentUser} developmentMode={config?.environment === "development"} />;
+  const pageTitle = view === "workspace" ? "Maritime forensics dashboard" : view === "administration" ? "Identity and access control" : "SeaScan platform overview";
+  const pageEyebrow = view === "workspace" ? "Case workspace" : view === "administration" ? "Administration" : "Service status";
 
   return (
     <main className="app-shell">
@@ -78,6 +102,7 @@ export default function App() {
           ))}
         </nav>
         <div className="sidebar-footer">
+          {currentUser && <div className="sidebar-user"><div>{currentUser.display_name.split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase()}</div><span><strong>{currentUser.display_name}</strong><small>{currentUser.role}</small></span></div>}
           <p>EVIDENCE MODE</p>
           <span><StatusDot status={status} /> API {status}</span>
         </div>
@@ -86,19 +111,24 @@ export default function App() {
       <section className="workspace">
         <header className="topbar">
           <div>
-            <p className="eyebrow">{view === "workspace" ? "Case workspace" : "Service status"}</p>
-            <h1>{view === "workspace" ? "Maritime forensics dashboard" : "SeaScan platform overview"}</h1>
+            <p className="eyebrow">{pageEyebrow}</p>
+            <h1>{pageTitle}</h1>
           </div>
-          <button className="refresh-button" type="button" onClick={() => void refreshConnection()} disabled={status === "checking"}>
-            <RefreshCw size={16} className={status === "checking" ? "spin" : ""} /> Refresh connection
-          </button>
+          <div className="topbar__actions"><button className="refresh-button" type="button" onClick={() => void refreshConnection()}>
+              <RefreshCw size={16} /> Refresh connection
+            </button>
+            {currentUser && <button className="logout-button" type="button" onClick={() => void signOut()}><LogOut size={16} /> Sign out</button>}
+          </div>
         </header>
 
         {view === "overview" ? (
           <OverviewView status={status} config={config} error={error} onOpenWorkspace={() => setView("workspace")} />
+        ) : view === "administration" && currentUser?.role === "administrator" ? (
+          <AdminPanel currentUser={currentUser} />
         ) : (
           config && (
             <ForensicsWorkspace
+              userRole={currentUser?.role ?? "analyst"}
               acceptedFormats={{
                 satellite: config.accepted_satellite_formats,
                 ais: config.accepted_ais_formats,
@@ -108,6 +138,7 @@ export default function App() {
           )
         )}
       </section>
+      <ModelProvenanceControl />
     </main>
   );
 }

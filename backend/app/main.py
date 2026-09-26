@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.ingestion import router as ingestion_router
@@ -10,6 +10,8 @@ from app.api.investigations import router as investigations_router
 from app.api.reports import router as reports_router
 from app.api.forensics import router as forensics_router
 from app.api.system import router as system_router
+from app.api.auth import router as auth_router
+from app.auth.dependencies import get_current_user, require_roles
 from app.core.config import get_settings
 from app.db.database import initialize_database
 
@@ -36,15 +38,16 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[str(origin).rstrip("/") for origin in settings.cors_origins],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
 )
 
 app.include_router(system_router, prefix=settings.api_v1_prefix)
-app.include_router(investigations_router, prefix=settings.api_v1_prefix)
-app.include_router(ingestion_router, prefix=settings.api_v1_prefix)
-app.include_router(forensics_router, prefix=settings.api_v1_prefix)
-app.include_router(reports_router, prefix=settings.api_v1_prefix)
+app.include_router(auth_router, prefix=settings.api_v1_prefix)
+app.include_router(investigations_router, prefix=settings.api_v1_prefix, dependencies=[Depends(get_current_user)])
+app.include_router(ingestion_router, prefix=settings.api_v1_prefix, dependencies=[Depends(require_roles("investigator", "administrator"))])
+app.include_router(forensics_router, prefix=settings.api_v1_prefix, dependencies=[Depends(require_roles("investigator", "analyst", "administrator"))])
+app.include_router(reports_router, prefix=settings.api_v1_prefix, dependencies=[Depends(require_roles("investigator", "analyst", "administrator"))])
 
 
 @app.get("/", tags=["system"], include_in_schema=False)

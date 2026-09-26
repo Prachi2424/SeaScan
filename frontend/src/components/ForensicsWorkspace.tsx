@@ -35,6 +35,7 @@ interface ForensicsWorkspaceProps {
     ais: string[];
     environment: string[];
   };
+  userRole: "investigator" | "analyst" | "administrator";
 }
 
 function describeError(error: unknown): string {
@@ -55,7 +56,8 @@ function extractHindcastOrigin(drift: DriftResponse): { latitude: number; longit
   return { latitude, longitude, estimatedOriginAt };
 }
 
-export function ForensicsWorkspace({ acceptedFormats }: ForensicsWorkspaceProps) {
+export function ForensicsWorkspace({ acceptedFormats, userRole }: ForensicsWorkspaceProps) {
+  const canManageEvidence = userRole === "investigator" || userRole === "administrator";
   const [investigations, setInvestigations] = useState<InvestigationSummary[]>([]);
   const [investigation, setInvestigation] = useState<InvestigationSummary | null>(null);
   const restoreVersion = useRef(0);
@@ -306,7 +308,7 @@ export function ForensicsWorkspace({ acceptedFormats }: ForensicsWorkspaceProps)
             </label>
           )}
 
-          <form onSubmit={(event) => void handleCreateInvestigation(event)} className="investigation-gate__form">
+          {canManageEvidence ? <form onSubmit={(event) => void handleCreateInvestigation(event)} className="investigation-gate__form">
             <label>
               <span>New investigation title</span>
               <input
@@ -321,7 +323,7 @@ export function ForensicsWorkspace({ acceptedFormats }: ForensicsWorkspaceProps)
             <button type="submit" disabled={creating}>
               {creating ? "Creating…" : "Start investigation"}
             </button>
-          </form>
+          </form> : <p className="investigation-gate__status">Analysts can open and analyse existing investigations. An investigator or administrator creates new cases and uploads evidence.</p>}
           {createError && <p className="investigation-gate__status investigation-gate__status--error">{createError}</p>}
         </div>
       </section>
@@ -345,9 +347,9 @@ export function ForensicsWorkspace({ acceptedFormats }: ForensicsWorkspaceProps)
           <button type="button" className="secondary-button" disabled={scenarioBusy || workflowBusy || backwardLoading || forwardLoading || attributionLoading || reportLoading !== null} onClick={() => { rememberCase(null); setInvestigation(null); resetPipelineState(); void loadInvestigations(); }}>
             Switch investigation
           </button>
-          <button type="button" className="primary-button" disabled={scenarioBusy || workflowBusy} onClick={() => setUploadOpen(true)}>
+          {canManageEvidence && <button type="button" className="primary-button" disabled={scenarioBusy || workflowBusy} onClick={() => setUploadOpen(true)}>
             <UploadCloud size={16} /> Upload evidence
-          </button>
+          </button>}
         </div>
       </header>
 
