@@ -91,6 +91,19 @@ export interface InvestigationDetail extends InvestigationSummary {
     drift_forward?: DriftResponse;
     attribution?: AttributionResponse;
   };
+  report_history: ReportHistoryEntry[];
+}
+
+export interface ReportHistoryEntry {
+  id: string;
+  investigation_id: string;
+  report_type: "pdf" | "package";
+  filename: string;
+  media_type: string;
+  byte_size: number;
+  sha256: string;
+  signing_key_id: string | null;
+  created_at: string;
 }
 
 // ---------------------------------------------------------------------------

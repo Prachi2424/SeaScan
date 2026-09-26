@@ -55,6 +55,21 @@ CREATE INDEX IF NOT EXISTS idx_release_scenarios_case ON release_scenario_result
 CREATE INDEX IF NOT EXISTS idx_analysis_investigation_type
 ON analysis_results(investigation_id, result_type, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS report_history (
+    id TEXT PRIMARY KEY,
+    investigation_id TEXT NOT NULL,
+    report_type TEXT NOT NULL CHECK(report_type IN ('pdf', 'package')),
+    filename TEXT NOT NULL,
+    stored_filename TEXT NOT NULL,
+    media_type TEXT NOT NULL,
+    byte_size INTEGER NOT NULL,
+    sha256 TEXT NOT NULL,
+    signing_key_id TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(investigation_id) REFERENCES investigations(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_report_history_case ON report_history(investigation_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     username TEXT NOT NULL UNIQUE COLLATE NOCASE,

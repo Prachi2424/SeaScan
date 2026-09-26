@@ -12,6 +12,7 @@ import type {
   InvestigationCreate,
   InvestigationDetail,
   InvestigationSummary,
+  ReportHistoryEntry,
   PackageVerificationResponse,
   SatelliteDetectionResponse,
   SystemConfigResponse,
@@ -161,6 +162,25 @@ function getInvestigation(investigationId: string): Promise<InvestigationDetail>
   return requestJson<InvestigationDetail>(`/api/investigations/${encodeURIComponent(investigationId)}`);
 }
 
+async function requestBlob(path: string): Promise<Blob> {
+  const response = await fetch(`${baseUrl}${path}`, { headers: authorizationHeader() });
+  if (!response.ok) throw new ApiError(response.status, await parseErrorDetail(response));
+  return response.blob();
+}
+
+function satellitePreview(investigationId: string, assetId: string): Promise<Blob> {
+  return requestBlob(`/api/investigations/${encodeURIComponent(investigationId)}/assets/${encodeURIComponent(assetId)}/preview`);
+}
+
+function groundTruthPreview(investigationId: string, assetId: string): Promise<Blob> {
+  return requestBlob(`/api/investigations/${encodeURIComponent(investigationId)}/assets/${encodeURIComponent(assetId)}/ground-truth-preview`);
+}
+
+async function downloadSavedReport(entry: ReportHistoryEntry): Promise<void> {
+  const blob = await requestBlob(`/api/investigations/${encodeURIComponent(entry.investigation_id)}/reports/${encodeURIComponent(entry.id)}`);
+  saveDownload({ blob, filename: entry.filename });
+}
+
 // ---------------------------------------------------------------------------
 // Ingestion — real file uploads only, no mock endpoints
 // ---------------------------------------------------------------------------
@@ -192,6 +212,7 @@ interface SatelliteUploadOptions {
   threshold?: number;
   minComponentPixels?: number;
   bounds?: { west: number; south: number; east: number; north: number };
+  groundTruthFile?: File | null;
 }
 
 function uploadSatellite(
@@ -205,6 +226,7 @@ function uploadSatellite(
   form.append("provenance", JSON.stringify(options.provenance ?? {}));
   form.append("threshold", String(options.threshold ?? 0.5));
   form.append("min_component_pixels", String(options.minComponentPixels ?? 0));
+  if (options.groundTruthFile) form.append("ground_truth_file", options.groundTruthFile);
   if (options.bounds) {
     form.append("west", String(options.bounds.west));
     form.append("south", String(options.bounds.south));
@@ -255,6 +277,9 @@ export const api = {
   createInvestigation,
   listInvestigations,
   getInvestigation,
+  satellitePreview,
+  groundTruthPreview,
+  downloadSavedReport,
   uploadAis,
   uploadEnvironment,
   verifyEvidencePackage,

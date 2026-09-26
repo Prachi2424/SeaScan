@@ -53,6 +53,22 @@ def test_forensic_package_contains_pdf_manifest_and_mandatory_notice() -> None:
     assert LEGAL_NOTICE in notice
 
 
+def test_generated_reports_are_persisted_and_downloadable() -> None:
+    with TestClient(app) as client:
+        investigation_id = _investigation(client)
+        generated = client.post("/api/reports/package.zip", json={"investigation_id": investigation_id})
+        assert generated.status_code == 200
+        reopened = client.get(f"/api/investigations/{investigation_id}")
+        assert reopened.status_code == 200
+        history = reopened.json()["report_history"]
+        assert len(history) == 1
+        assert history[0]["report_type"] == "package"
+        assert history[0]["signing_key_id"]
+        restored = client.get(f"/api/investigations/{investigation_id}/reports/{history[0]['id']}")
+        assert restored.status_code == 200
+        assert restored.content == generated.content
+
+
 def test_modified_report_fails_signature_package_verification() -> None:
     with TestClient(app) as client:
         response = client.post("/api/reports/package.zip", json={"investigation_id": _investigation(client)})

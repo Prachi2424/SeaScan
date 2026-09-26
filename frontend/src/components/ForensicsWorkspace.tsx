@@ -13,6 +13,7 @@ import type {
   DriftResponse,
   IngestionResponse,
   InvestigationSummary,
+  ReportHistoryEntry,
   SatelliteDetectionResponse,
   SatellitePresentation,
 } from "../types/api";
@@ -96,6 +97,7 @@ export function ForensicsWorkspace({ acceptedFormats, userRole }: ForensicsWorks
   const [scenarios, setScenarios] = useState<ReleaseScenarioResponse | null>(null);
   const [workflowBusy, setWorkflowBusy] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
+  const [reportHistory, setReportHistory] = useState<ReportHistoryEntry[]>([]);
   const [verificationMessage, setVerificationMessage] = useState<string | null>(null);
   const [fullWorkflowOpen, setFullWorkflowOpen] = useState(false);
 
@@ -125,6 +127,7 @@ export function ForensicsWorkspace({ acceptedFormats, userRole }: ForensicsWorks
     setBackwardDrift(null);
     setForwardDrift(null);
     setAttribution(null);
+    setReportHistory([]);
     setSelectedMmsi(null);
     setBackwardError(null);
     setForwardError(null);
@@ -170,19 +173,38 @@ export function ForensicsWorkspace({ acceptedFormats, userRole }: ForensicsWorks
       const detail = await api.getInvestigation(id);
       if (version !== restoreVersion.current) return;
       setEvidenceAssets(detail.assets);
+      setReportHistory(detail.report_history ?? []);
       const stored = detail.analyses ?? {};
       const asset = (type: "ais" | "environment") => {
         const item = detail.assets.find((entry) => entry.asset_type === type);
         return item ? { asset: item, validation: item.metadata } : null;
       };
       setScenarios(stored.release_scenarios ?? null);
-      setSatellite(stored.satellite_detection ?? null);
+      const restoredSatellite = stored.satellite_detection ?? null;
+      setSatellite(restoredSatellite);
       setAisAsset(asset("ais"));
       setEnvironmentAsset(asset("environment"));
       setBackwardDrift(stored.drift_backward ?? null);
       setForwardDrift(stored.drift_forward ?? null);
       setAttribution(stored.attribution ?? null);
-      setSelectedMmsi(stored.attribution?.candidates[0]?.mmsi ?? null);
+      const savedMmsi = window.localStorage.getItem(`seascan.selectedMmsi.${id}`);
+      setSelectedMmsi(stored.attribution?.candidates.some((candidate) => candidate.mmsi === savedMmsi) ? savedMmsi : stored.attribution?.candidates[0]?.mmsi ?? null);
+      if (restoredSatellite) {
+        const rawBounds = restoredSatellite.validation.geographic_bounds;
+        const bounds = Array.isArray(rawBounds) && rawBounds.length === 4 ? rawBounds.map(Number) as [number, number, number, number] : null;
+        try {
+          const [preview, groundTruth] = await Promise.all([
+            api.satellitePreview(id, restoredSatellite.asset.id),
+            api.groundTruthPreview(id, restoredSatellite.asset.id).catch(() => null),
+          ]);
+          if (version !== restoreVersion.current) return;
+          const presentation = { imageUrl: URL.createObjectURL(preview), groundTruthUrl: groundTruth ? URL.createObjectURL(groundTruth) : null, bounds, filename: restoredSatellite.asset.original_filename };
+          satellitePresentationRef.current = presentation;
+          setSatellitePresentation(presentation);
+        } catch {
+          setSatellitePresentation({ imageUrl: null, groundTruthUrl: null, bounds, filename: restoredSatellite.asset.original_filename });
+        }
+      }
       setInvestigation(detail);
       rememberCase(id);
     } catch (error) {
@@ -266,6 +288,10 @@ export function ForensicsWorkspace({ acceptedFormats, userRole }: ForensicsWorks
 
   const activeStage: FlowStageKey | null = backwardLoading || forwardLoading ? "drift" : attributionLoading ? "aisFilter" : null;
 
+  useEffect(() => {
+    if (investigation && selectedMmsi) window.localStorage.setItem(`seascan.selectedMmsi.${investigation.id}`, selectedMmsi);
+  }, [investigation, selectedMmsi]);
+
   async function handleReportDownload(format: "pdf" | "package") {
     if (!investigation) return;
     setReportLoading(format);
@@ -274,6 +300,8 @@ export function ForensicsWorkspace({ acceptedFormats, userRole }: ForensicsWorks
     try {
       if (format === "pdf") await api.downloadForensicPdf(payload);
       else await api.downloadForensicPackage(payload);
+      const refreshed = await api.getInvestigation(investigation.id);
+      setReportHistory(refreshed.report_history ?? []);
     } catch (error) {
       setReportError(describeError(error));
     } finally {
@@ -381,6 +409,19 @@ export function ForensicsWorkspace({ acceptedFormats, userRole }: ForensicsWorks
 
       {reportError && <p className="report-export-error" role="alert">Report export failed: {reportError}</p>}
       {verificationMessage && <p className="report-export-status" role="status">{verificationMessage}</p>}
+
+      {reportHistory.length > 0 && (
+        <section className="report-history" aria-labelledby="report-history-title">
+          <h3 id="report-history-title">Report history</h3>
+          <div className="report-history__list">
+            {reportHistory.map((entry) => (
+              <button type="button" className="secondary-button" key={entry.id} onClick={() => void api.downloadSavedReport(entry)}>
+                <Download size={15} /> {entry.report_type === "package" ? "Signed package" : "PDF"} · {new Date(entry.created_at).toLocaleString()}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="asset-chip-row" role="list">
         <span role="listitem" className={`asset-chip ${satellite ? "asset-chip--ready" : ""}`}>

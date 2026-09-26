@@ -30,6 +30,19 @@ class EvidenceAsset(BaseModel):
     created_at: datetime
 
 
+class ReportHistoryEntry(BaseModel):
+    id: str
+    investigation_id: str
+    report_type: str
+    filename: str
+    media_type: str
+    byte_size: int
+    sha256: str
+    signing_key_id: str | None = None
+    created_at: datetime
+
+
 class InvestigationDetail(InvestigationSummary):
     assets: list[EvidenceAsset]
     analyses: dict[str, dict[str, object]] = Field(default_factory=dict)
+    report_history: list[ReportHistoryEntry] = Field(default_factory=list)

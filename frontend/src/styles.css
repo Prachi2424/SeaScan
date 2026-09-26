@@ -165,6 +165,9 @@ nav { display: grid; gap: 6px; }.nav-item { display: flex; align-items: center; 
 .forensics-workspace__header-actions { flex-wrap: wrap; justify-content: flex-end; }
 .forensics-workspace__header-actions button:disabled { cursor: wait; opacity: .55; }
 .report-export-error { margin: -8px 0 0; padding: 10px 12px; color: #ffaaaa; background: rgba(165, 47, 66, .12); border: 1px solid rgba(255, 112, 112, .25); border-radius: 8px; font-size: 12px; }
+.report-history { padding: 1rem; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
+.report-history h3 { margin: 0 0 .75rem; }
+.report-history__list { display: flex; flex-wrap: wrap; gap: .65rem; }
 
 .asset-chip-row { display: flex; flex-wrap: wrap; gap: 10px; }
 .asset-chip { display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; font-size: 12px; color: #90acb9; background: rgba(7, 29, 45, .62); border: 1px solid rgba(140, 200, 220, .18); border-radius: 999px; }

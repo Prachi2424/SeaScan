@@ -66,6 +66,7 @@ async def upload_satellite(
     connection: DatabaseConnection,
     settings: AppSettings,
     provenance: Provenance,
+    ground_truth_file: Annotated[UploadFile | None, File(description="Optional ground-truth mask retained for validation and map restoration.")] = None,
     threshold: Annotated[float, Form(ge=0.001, le=0.999)] = 0.5,
     min_component_pixels: Annotated[int, Form(ge=0, le=1_000_000)] = 0,
     west: Annotated[float | None, Form()] = None,
@@ -78,11 +79,16 @@ async def upload_satellite(
         from fastapi import HTTPException
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Provide all of west, south, east, and north to georeference a PNG.")
     stored = await store_upload(file, settings, "satellite")
+    stored_ground_truth = await store_upload(ground_truth_file, settings, "satellite_ground_truth") if ground_truth_file else None
     try:
         geojson, model, validation = segment_satellite(stored.path, settings=settings, threshold=threshold, bounds=bounds_values if all(value is not None for value in bounds_values) else None, min_component_pixels=min_component_pixels)
+        if stored_ground_truth:
+            validation["ground_truth"] = {"original_filename": stored_ground_truth.original_filename, "stored_filename": stored_ground_truth.stored_filename, "byte_size": stored_ground_truth.byte_size, "sha256": stored_ground_truth.sha256}
         asset = record_asset(connection, investigation_id=investigation_id, asset_type="satellite", original_filename=stored.original_filename, stored_filename=stored.stored_filename, media_type=file.content_type, byte_size=stored.byte_size, sha256=stored.sha256, metadata={**validation, "model": model, "provenance": provenance, "processing_steps": ["Original uploaded bytes retained; SHA-256 computed", "Shared scene percentile normalization (sample up to 512x512)", "U-Net inference: 256-pixel tiles, 64-pixel overlap, weighted blending", f"Probability threshold {threshold}; remove components smaller than {min_component_pixels} pixels (0 disables); polygonization", "WGS84 geometry measurements"]})
     except Exception:
         discard_upload(stored)
+        if stored_ground_truth:
+            discard_upload(stored_ground_truth)
         raise
     response = SatelliteDetectionResponse(asset=asset, validation=validation, geojson=geojson, model=model)
     record_analysis(connection, investigation_id, "satellite_detection", response.model_dump(mode="json"))

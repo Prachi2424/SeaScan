@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
 
-from app.schemas.investigation import EvidenceAsset, InvestigationCreate, InvestigationDetail, InvestigationSummary
+from app.schemas.investigation import EvidenceAsset, InvestigationCreate, InvestigationDetail, InvestigationSummary, ReportHistoryEntry
 
 
 def _now() -> str:
@@ -60,7 +60,30 @@ def get_investigation(connection: sqlite3.Connection, investigation_id: str) -> 
     assets = connection.execute(
         "SELECT * FROM evidence_assets WHERE investigation_id = ? ORDER BY created_at DESC", (investigation_id,)
     ).fetchall()
-    return InvestigationDetail(**dict(row), assets=[_asset_from_row(asset) for asset in assets])
+    reports = connection.execute(
+        "SELECT id, investigation_id, report_type, filename, media_type, byte_size, sha256, signing_key_id, created_at FROM report_history WHERE investigation_id = ? ORDER BY created_at DESC",
+        (investigation_id,),
+    ).fetchall()
+    return InvestigationDetail(**dict(row), assets=[_asset_from_row(asset) for asset in assets], report_history=[ReportHistoryEntry(**dict(report)) for report in reports])
+
+
+def record_report(connection: sqlite3.Connection, *, investigation_id: str, report_type: str, filename: str, stored_filename: str, media_type: str, content: bytes, signing_key_id: str | None = None) -> ReportHistoryEntry:
+    report_id = str(uuid.uuid4())
+    created_at = _now()
+    digest = __import__("hashlib").sha256(content).hexdigest()
+    connection.execute(
+        "INSERT INTO report_history (id, investigation_id, report_type, filename, stored_filename, media_type, byte_size, sha256, signing_key_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (report_id, investigation_id, report_type, filename, stored_filename, media_type, len(content), digest, signing_key_id, created_at),
+    )
+    connection.execute("UPDATE investigations SET updated_at = ? WHERE id = ?", (created_at, investigation_id))
+    return ReportHistoryEntry(id=report_id, investigation_id=investigation_id, report_type=report_type, filename=filename, media_type=media_type, byte_size=len(content), sha256=digest, signing_key_id=signing_key_id, created_at=created_at)
+
+
+def get_report_file(connection: sqlite3.Connection, investigation_id: str, report_id: str) -> tuple[str, str, str]:
+    row = connection.execute("SELECT filename, stored_filename, media_type FROM report_history WHERE id = ? AND investigation_id = ?", (report_id, investigation_id)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Saved report not found.")
+    return row["filename"], row["stored_filename"], row["media_type"]
 
 
 def record_asset(
