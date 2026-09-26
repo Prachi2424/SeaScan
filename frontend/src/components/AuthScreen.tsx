@@ -146,7 +146,7 @@ export function AuthScreen({ onAuthenticated, developmentMode }: AuthScreenProps
 
     <section className="public-section public-section--contact" id="contact" aria-labelledby="contact-title">
       <div><p className="eyebrow">Contact and collaboration</p><h2 id="contact-title">Continue the investigation</h2><p>For project access, technical questions, or collaboration, use the SeaScan project repository.</p></div>
-      <a href="https://github.com/agrawalpreetika/SeaScan" target="_blank" rel="noreferrer">Open project repository <ArrowRight size={17} /></a>
+      <a href="https://github.com/Prachi2424/SeaScan" target="_blank" rel="noreferrer">Open project repository <ArrowRight size={17} /></a>
     </section>
 
     <footer className="public-footer"><div className="auth-brand"><Anchor size={22} /><span>Sea<span>Scan</span></span></div><p>Satellite detection · Drift reconstruction · AIS correlation</p></footer>
