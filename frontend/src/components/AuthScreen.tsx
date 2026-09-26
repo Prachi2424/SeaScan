@@ -54,9 +54,9 @@ export function AuthScreen({ onAuthenticated, developmentMode }: AuthScreenProps
     <header className="auth-header">
       <div className="auth-brand"><Anchor size={29} /><span>Sea<span>Scan</span></span></div>
       <nav aria-label="Welcome page">
-        <a href="#capabilities">Capabilities</a>
-        <a href="#role-access">Role access</a>
-        <a href="#security">Security</a>
+        <a href="#features">Features</a>
+        <a href="#about">About</a>
+        <a href="#contact">Contact</a>
       </nav>
       <span className="auth-header__status"><i /> Operational</span>
     </header>
@@ -99,7 +99,7 @@ export function AuthScreen({ onAuthenticated, developmentMode }: AuthScreenProps
         </div>
       </div>
 
-      <section className="auth-visual" id="capabilities">
+      <section className="auth-visual">
         <div className="auth-visual__content">
           <p className="eyebrow"><Satellite size={13} /> AI-powered maritime intelligence</p>
           <h1>Trace pollution.<br /><span>Reveal its source.</span></h1>
@@ -128,6 +128,28 @@ export function AuthScreen({ onAuthenticated, developmentMode }: AuthScreenProps
         </div>
         <div className="auth-security" id="security"><ShieldCheck size={15} /><span><strong>Enterprise-ready access</strong> Password hashing · expiring sessions · server-enforced permissions</span></div>
       </section>
+    </section>
+
+    <section className="public-section" id="features" aria-labelledby="features-title">
+      <div className="public-section__heading"><p className="eyebrow">Platform capabilities</p><h2 id="features-title">One investigation workspace, from detection to evidence</h2><p>SeaScan connects the main stages of a maritime pollution investigation while keeping every result available for expert review.</p></div>
+      <div className="public-feature-grid">
+        <article><Satellite size={24} /><h3>Satellite spill detection</h3><p>Segment candidate oil slicks from SAR or optical raster evidence and calculate their geographic properties.</p></article>
+        <article><Waves size={24} /><h3>Drift reconstruction</h3><p>Use uploaded wind and current observations to estimate backward origins and forecast possible movement.</p></article>
+        <article><Ship size={24} /><h3>Explainable vessel ranking</h3><p>Filter historical AIS traffic and rank candidate vessels using transparent spatial, temporal, and behavioral evidence.</p></article>
+      </div>
+    </section>
+
+    <section className="public-section public-section--about" id="about" aria-labelledby="about-title">
+      <div><p className="eyebrow">About SeaScan</p><h2 id="about-title">Evidence-led maritime intelligence</h2></div>
+      <div><p>SeaScan is a research prototype for detecting marine oil spills, reconstructing their likely drift, and correlating estimated release areas with vessel movement history.</p><p>Its results are investigative leads that require validation by qualified authorities. Candidate rankings do not establish identity, causation, liability, or guilt.</p></div>
+    </section>
+
+    <section className="public-section public-section--contact" id="contact" aria-labelledby="contact-title">
+      <div><p className="eyebrow">Contact and collaboration</p><h2 id="contact-title">Continue the investigation</h2><p>For project access, technical questions, or collaboration, use the SeaScan project repository.</p></div>
+      <a href="https://github.com/agrawalpreetika/SeaScan" target="_blank" rel="noreferrer">Open project repository <ArrowRight size={17} /></a>
+    </section>
+
+    <footer className="public-footer"><div className="auth-brand"><Anchor size={22} /><span>Sea<span>Scan</span></span></div><p>Satellite detection · Drift reconstruction · AIS correlation</p></footer>
 
       {loginOpen && <section className="auth-panel" role="dialog" aria-modal="true" aria-labelledby="auth-dialog-title">
       <button className="auth-panel__backdrop" type="button" aria-label="Close sign in" onClick={() => setLoginOpen(false)} />
@@ -149,6 +171,5 @@ export function AuthScreen({ onAuthenticated, developmentMode }: AuthScreenProps
         {developmentMode && <p className="auth-demo-note"><CheckCircle2 size={14} /> Demo credentials filled automatically when you select a role.</p>}
       </div>
       </section>}
-    </section>
   </main>;
 }
