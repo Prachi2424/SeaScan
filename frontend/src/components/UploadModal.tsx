@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { Anchor, Satellite, Waves, X } from "lucide-react";
+import { Anchor, CheckCircle2, ChevronDown, Satellite, Waves, X } from "lucide-react";
 
 import { api, ApiError } from "../lib/api";
 import type { EvidenceProvenance, IngestionResponse, SatelliteDetectionResponse, SatellitePresentation } from "../types/api";
@@ -39,6 +39,21 @@ interface TabState {
 
 const EMPTY_TAB_STATE: TabState = { provenance: { evidence_kind: "unknown", source_organization: "", source_reference: "", dataset_version: "", acquired_at: null, declared_crs: "", prior_processing: "", added_by: "" }, file: null, submitting: false, error: null, successMessage: null };
 
+const DEMO_SATELLITE_SHA256 = "126d656b28c23b0e98c9e4531b08fd8919e1ed9119ec435eb26d270f9fa7615d";
+const DEMO_SATELLITE_BOUNDS = {
+  west: -88.8509434,
+  south: 29.06061,
+  east: -88.4597525,
+  north: 29.2801243,
+};
+
+type GeoreferenceStatus = "none" | "checking" | "embedded" | "manifest" | "missing";
+
+async function sha256(file: File): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 export function UploadModal({
   investigationId,
   open,
@@ -56,7 +71,9 @@ export function UploadModal({
   });
   const [minComponentPixels, setMinComponentPixels] = useState(0);
   const [threshold, setThreshold] = useState(0.5);
-  const [useManualBounds, setUseManualBounds] = useState(false);
+  const [showAdvancedBounds, setShowAdvancedBounds] = useState(false);
+  const [georeferenceStatus, setGeoreferenceStatus] = useState<GeoreferenceStatus>("none");
+  const [automaticBounds, setAutomaticBounds] = useState<typeof DEMO_SATELLITE_BOUNDS | null>(null);
   const [bounds, setBounds] = useState({ west: "", south: "", east: "", north: "" });
   const [groundTruthFile, setGroundTruthFile] = useState<File | null>(null);
 
@@ -64,6 +81,45 @@ export function UploadModal({
 
   function updateTab(tab: UploadTab, patch: Partial<TabState>) {
     setTabState((previous) => ({ ...previous, [tab]: { ...previous[tab], ...patch } }));
+  }
+
+  async function handleFileSelection(tab: UploadTab, file: File | null) {
+    updateTab(tab, { file, error: null, successMessage: null });
+    if (tab !== "satellite") return;
+    setAutomaticBounds(null);
+    setShowAdvancedBounds(false);
+    if (!file) {
+      setGeoreferenceStatus("none");
+      return;
+    }
+    const extension = file.name.toLowerCase().split(".").pop();
+    if (extension === "tif" || extension === "tiff") {
+      setGeoreferenceStatus("embedded");
+      return;
+    }
+    setGeoreferenceStatus("checking");
+    try {
+      if (await sha256(file) === DEMO_SATELLITE_SHA256) {
+        setAutomaticBounds(DEMO_SATELLITE_BOUNDS);
+        setGeoreferenceStatus("manifest");
+        updateTab("satellite", {
+          provenance: {
+            evidence_kind: "real",
+            source_organization: "Zenodo",
+            source_reference: "https://doi.org/10.5281/zenodo.4672426",
+            dataset_version: "Oil Spill Segmentation — Sentinel-1A GRD VV",
+            acquired_at: "2018-12-19T12:00:00Z",
+            declared_crs: "EPSG:4326",
+            prior_processing: "Normalized and resized demonstration copy of the published Sentinel-1 scene.",
+            added_by: "",
+          },
+        });
+      } else {
+        setGeoreferenceStatus("missing");
+      }
+    } catch {
+      setGeoreferenceStatus("missing");
+    }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>, tab: UploadTab) {
@@ -77,7 +133,7 @@ export function UploadModal({
     try {
       if (tab === "satellite") {
         let manualBounds: { west: number; south: number; east: number; north: number } | undefined;
-        if (useManualBounds) {
+        if (!automaticBounds && showAdvancedBounds) {
           const parsed = {
             west: Number.parseFloat(bounds.west),
             south: Number.parseFloat(bounds.south),
@@ -90,9 +146,14 @@ export function UploadModal({
           manualBounds = parsed;
         }
         const response = await api.uploadSatellite(investigationId, file, { threshold, minComponentPixels, bounds: manualBounds, provenance: tabState[tab].provenance });
-        const detectedBounds = manualBounds
-          ? ([manualBounds.west, manualBounds.south, manualBounds.east, manualBounds.north] as [number, number, number, number])
-          : null;
+        const responseBounds = response.validation.geographic_bounds;
+        const detectedBounds = Array.isArray(responseBounds) && responseBounds.length === 4
+          ? (responseBounds.map(Number) as [number, number, number, number])
+          : automaticBounds
+            ? ([automaticBounds.west, automaticBounds.south, automaticBounds.east, automaticBounds.north] as [number, number, number, number])
+            : manualBounds
+              ? ([manualBounds.west, manualBounds.south, manualBounds.east, manualBounds.north] as [number, number, number, number])
+              : null;
         onSatelliteUploaded(response, {
           imageUrl: file.type === "image/png" ? URL.createObjectURL(file) : null,
           groundTruthUrl: groundTruthFile ? URL.createObjectURL(groundTruthFile) : null,
@@ -155,7 +216,7 @@ export function UploadModal({
                 <input
                   type="file"
                   accept={accepted.join(",")}
-                  onChange={(event) => updateTab(key, { file: event.target.files?.[0] ?? null, error: null, successMessage: null })}
+                  onChange={(event) => void handleFileSelection(key, event.target.files?.[0] ?? null)}
                 />
               </label>
 
@@ -203,11 +264,25 @@ export function UploadModal({
                       onChange={(event) => setThreshold(Number.parseFloat(event.target.value))}
                     />
                   </label>
-                  <label className="modal__checkbox-label">
-                    <input type="checkbox" checked={useManualBounds} onChange={(event) => setUseManualBounds(event.target.checked)} />
-                    <span>Georeference a PNG with manual west/south/east/north bounds (required for PNG, ignored for GeoTIFF)</span>
-                  </label>
-                  {useManualBounds && (
+                  {georeferenceStatus === "checking" && <p className="modal__metadata-status">Checking image metadata…</p>}
+                  {georeferenceStatus === "embedded" && (
+                    <p className="modal__metadata-status modal__metadata-status--ready"><CheckCircle2 size={15} /> Coordinates will be read automatically from the GeoTIFF.</p>
+                  )}
+                  {georeferenceStatus === "manifest" && (
+                    <div className="modal__metadata-card">
+                      <CheckCircle2 size={17} />
+                      <div><strong>Evidence metadata found automatically</strong><span>Sentinel-1A · 19 Dec 2018 · EPSG:4326 · Zenodo 4672426</span></div>
+                    </div>
+                  )}
+                  {georeferenceStatus === "missing" && (
+                    <p className="modal__metadata-status modal__metadata-status--warning">This PNG contains no location data. Upload its GeoTIFF when available, or use Advanced georeferencing once.</p>
+                  )}
+                  {georeferenceStatus === "missing" && (
+                    <button type="button" className="modal__advanced-toggle" aria-expanded={showAdvancedBounds} onClick={() => setShowAdvancedBounds((value) => !value)}>
+                      <ChevronDown size={15} className={showAdvancedBounds ? "modal__chevron--open" : ""} /> Advanced georeferencing
+                    </button>
+                  )}
+                  {georeferenceStatus === "missing" && showAdvancedBounds && (
                     <div className="modal__bounds-grid">
                       {(["west", "south", "east", "north"] as const).map((field) => (
                         <label key={field}>

@@ -22,7 +22,7 @@ Satellite source: William Alberto Ramirez, *Oil Spill Segmentation*, Zenodo, DOI
 ## Demonstration sequence
 
 1. Start the backend and frontend, then create an investigation named `Gulf Sentinel-1 demo — 2018-12-19`.
-2. Upload the satellite PNG, enable manual bounds, and enter the four bounds above. Keep the segmentation threshold at `0.5`.
+2. Upload the satellite PNG. SeaScan verifies its content hash and automatically applies the registered bounds and provenance. Keep the segmentation threshold at `0.5`.
 3. Upload the synthetic environment CSV and synthetic AIS CSV. State aloud that both are synthetic and permitted for demonstration by the problem statement.
 4. In Drift Analysis, set the observation time to `2018-12-19 12:00`, then run the 24-hour backward drift and 48-hour forward drift.
 5. Run vessel attribution using the suggested hindcast origin and the settings above.

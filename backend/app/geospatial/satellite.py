@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +10,34 @@ from fastapi import HTTPException, status
 from app.core.config import Settings
 
 SATELLITE_SUFFIXES = {".tif", ".tiff", ".png"}
+
+# Plain PNG files do not carry a geographic transform.  Known demonstration
+# evidence is therefore identified by its content hash, rather than trusting a
+# filename that can be changed or accidentally reused for another image.
+KNOWN_PNG_EVIDENCE: dict[str, dict[str, object]] = {
+    "126d656b28c23b0e98c9e4531b08fd8919e1ed9119ec435eb26d270f9fa7615d": {
+        "bounds": (-88.8509434, 29.0606100, -88.4597525, 29.2801243),
+        "coordinate_reference": "EPSG:4326",
+        "acquired_at": "2018-12-19T12:00:00Z",
+        "source_organization": "Zenodo",
+        "source_reference": "https://doi.org/10.5281/zenodo.4672426",
+        "dataset": "Oil Spill Segmentation — Sentinel-1A GRD VV",
+        "evidence_type": "real_observation_declared",
+    }
+}
+
+
+def _sha256(file_path: Path) -> str:
+    digest = hashlib.sha256()
+    with file_path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _valid_bounds(bounds: tuple[float, float, float, float]) -> bool:
+    west, south, east, north = bounds
+    return all(math.isfinite(value) for value in bounds) and -180 <= west < east <= 180 and -90 <= south < north <= 90
 
 
 def segment_satellite(
@@ -43,6 +72,7 @@ def segment_satellite(
         import rasterio
         from rasterio.enums import Resampling
         from rasterio.windows import Window
+        from rasterio.warp import transform_bounds
         try:
             with rasterio.open(file_path) as dataset:
                 _check_dimensions(dataset.width, dataset.height)
@@ -61,7 +91,15 @@ def segment_satellite(
                 sample = bands(dataset.read(indices, out_shape=(len(indices), min(512, dataset.height), min(512, dataset.width)), masked=True, resampling=Resampling.nearest))
                 probabilities = runner.predict_windows(read_window, dataset.height, dataset.width, sample)
                 transform, crs = dataset.transform, dataset.crs
-                source_metadata = {"source_format": "geotiff", "coordinate_reference": str(crs), "width": dataset.width, "height": dataset.height, "band_count": dataset.count}
+                source_metadata = {
+                    "source_format": "geotiff",
+                    "coordinate_reference": str(crs),
+                    "geographic_bounds": list(transform_bounds(crs, "EPSG:4326", *dataset.bounds, densify_pts=21)),
+                    "georeference_source": "embedded_geotiff",
+                    "width": dataset.width,
+                    "height": dataset.height,
+                    "band_count": dataset.count,
+                }
         except rasterio.errors.RasterioError as error:
             raise HTTPException(status_code=422, detail="The GeoTIFF could not be read.") from error
     source_metadata["inference"] = {
@@ -83,16 +121,37 @@ def _read_raster(file_path: Path, bounds: tuple[float, float, float, float] | No
             image.load()
             array = np.asarray(image.convert("RGB"), dtype=np.float32).transpose(2, 0, 1)
         height, width = array.shape[1:]
-        if bounds:
-            west, south, east, north = bounds
-            if not all(math.isfinite(value) for value in bounds) or not (-180 <= west < east <= 180 and -90 <= south < north <= 90):
+        evidence_metadata = KNOWN_PNG_EVIDENCE.get(_sha256(file_path))
+        resolved_bounds = bounds
+        georeference_source = "manual"
+        if resolved_bounds is None and evidence_metadata is not None:
+            resolved_bounds = evidence_metadata["bounds"]  # type: ignore[assignment]
+            georeference_source = "trusted_evidence_manifest"
+        if resolved_bounds:
+            west, south, east, north = resolved_bounds
+            if not _valid_bounds(resolved_bounds):
                 raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="PNG bounds must be valid geographic coordinates with west < east and south < north.")
             transform = from_bounds(west, south, east, north, width, height)
-            return array, transform, "EPSG:4326", {"source_format": "png", "coordinate_reference": "EPSG:4326", "width": width, "height": height, "band_count": 3}
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="PNG satellite evidence requires manual west, south, east, and north geographic bounds.")
+            metadata = {
+                "source_format": "png",
+                "coordinate_reference": "EPSG:4326",
+                "geographic_bounds": [west, south, east, north],
+                "georeference_source": georeference_source,
+                "width": width,
+                "height": height,
+                "band_count": 3,
+            }
+            if evidence_metadata is not None and georeference_source == "trusted_evidence_manifest":
+                metadata.update({key: value for key, value in evidence_metadata.items() if key != "bounds"})
+            return array, transform, "EPSG:4326", metadata
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="This PNG has no embedded coordinates and is not in the trusted evidence registry. Open Advanced georeferencing and provide its geographic bounds, or upload a GeoTIFF.",
+        )
 
     try:
         import rasterio
+        from rasterio.warp import transform_bounds
         with rasterio.open(file_path) as dataset:
             if dataset.count == 0:
                 raise ValueError("Raster has no bands.")
@@ -101,7 +160,18 @@ def _read_raster(file_path: Path, bounds: tuple[float, float, float, float] | No
             while array.shape[0] < 3:
                 array = np.concatenate([array, array[-1:, :, :]], axis=0)
             spatial_reference = str(dataset.crs) if dataset.crs else "image_pixels"
-            return array, dataset.transform, dataset.crs, {"source_format": "geotiff", "coordinate_reference": spatial_reference, "width": dataset.width, "height": dataset.height, "band_count": dataset.count}
+            geographic_bounds = None
+            if dataset.crs:
+                geographic_bounds = list(transform_bounds(dataset.crs, "EPSG:4326", *dataset.bounds, densify_pts=21))
+            return array, dataset.transform, dataset.crs, {
+                "source_format": "geotiff",
+                "coordinate_reference": spatial_reference,
+                "geographic_bounds": geographic_bounds,
+                "georeference_source": "embedded_geotiff" if dataset.crs else "unavailable",
+                "width": dataset.width,
+                "height": dataset.height,
+                "band_count": dataset.count,
+            }
     except HTTPException:
         raise
     except Exception as error:

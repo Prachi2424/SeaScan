@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import pytest
 from fastapi import HTTPException
@@ -37,6 +39,19 @@ def test_polygonized_png_stays_inside_geographic_bounds(scene):
     for longitude, latitude in geojson["features"][0]["geometry"]["coordinates"][0]:
         assert west <= longitude <= east
         assert south <= latitude <= north
+
+
+def test_registered_demo_png_is_georeferenced_automatically():
+    path = Path(__file__).parents[2] / "demo" / "evidence" / "satellite" / "sentinel1_2018_12_19_e.png"
+    raster, transform, crs, metadata = _read_raster(path, None)
+    west, south, east, north = BOUNDS
+    assert raster.shape == (3, 256, 256)
+    assert crs == "EPSG:4326"
+    assert metadata["georeference_source"] == "trusted_evidence_manifest"
+    assert metadata["geographic_bounds"] == list(BOUNDS)
+    assert metadata["acquired_at"] == "2018-12-19T12:00:00Z"
+    assert transform * (0, 0) == pytest.approx((west, north))
+    assert transform * (256, 256) == pytest.approx((east, south))
 
 
 @pytest.mark.parametrize("bounds", [None, (-88, 29, -89, 30), (-88, 29, -87, 100), (float("nan"), 29, -87, 30)])

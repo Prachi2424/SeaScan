@@ -240,6 +240,10 @@ export function ForensicsWorkspace({ acceptedFormats }: ForensicsWorkspaceProps)
     if (metrics?.centroid?.length === 2) return [metrics.centroid[1], metrics.centroid[0]];
     return computeCentroid(satellite.geojson);
   }, [satellite]);
+  const satelliteObservedAt = useMemo(() => {
+    const value = satellite?.validation.acquired_at;
+    return typeof value === "string" && value.length > 0 ? value : null;
+  }, [satellite]);
   const suggestedOrigin = useMemo(() => (backwardDrift ? extractHindcastOrigin(backwardDrift) : null), [backwardDrift]);
 
   const completedStages = useMemo<Set<FlowStageKey>>(() => {
@@ -388,6 +392,7 @@ export function ForensicsWorkspace({ acceptedFormats }: ForensicsWorkspaceProps)
           savedForward={forwardDrift}
           environmentAsset={environmentAsset}
           spillCentroid={spillCentroid}
+          satelliteObservedAt={satelliteObservedAt}
           onRunBackward={(payload) => void handleRunBackward(payload)}
           onRunForward={(payload) => void handleRunForward(payload)}
           backwardLoading={backwardLoading}

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { CornerUpLeft, CornerUpRight, LocateFixed } from "lucide-react";
 
@@ -9,6 +9,7 @@ interface DriftControlsProps {
   savedForward?: DriftResponse | null;
   environmentAsset: IngestionResponse | null;
   spillCentroid: [number, number] | null; // [lat, lng]
+  satelliteObservedAt: string | null;
   onRunBackward: (payload: DriftRequest) => void;
   onRunForward: (payload: DriftRequest) => void;
   backwardLoading: boolean;
@@ -30,11 +31,19 @@ function toIsoFromLocalInput(value: string): string {
   return new Date(value).toISOString();
 }
 
+function toDatetimeLocal(value: string): string | null {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+}
+
 export function DriftControls({
   savedBackward,
   savedForward,
   environmentAsset,
   spillCentroid,
+  satelliteObservedAt,
   onRunBackward,
   onRunForward,
   backwardLoading,
@@ -58,8 +67,22 @@ export function DriftControls({
   const [initialSpreadMeters, setInitialSpreadMeters] = useState(saved.initial_spread_meters ?? 250);
   const [windageFactor, setWindageFactor] = useState(saved.windage_factor ?? 0.03);
   const [stepMinutes, setStepMinutes] = useState(saved.step_minutes ?? 30);
+  const hasSavedObservedAt = saved.observed_at !== undefined;
+  const hasSavedLocation = saved.latitude !== undefined && saved.longitude !== undefined;
 
   const disabled = !environmentAsset;
+
+  useEffect(() => {
+    if (hasSavedObservedAt || !satelliteObservedAt) return;
+    const localValue = toDatetimeLocal(satelliteObservedAt);
+    if (localValue) setObservedAt(localValue);
+  }, [hasSavedObservedAt, satelliteObservedAt]);
+
+  useEffect(() => {
+    if (hasSavedLocation || !spillCentroid) return;
+    setLatitude(String(spillCentroid[0]));
+    setLongitude(String(spillCentroid[1]));
+  }, [hasSavedLocation, spillCentroid]);
 
   function applySpillCentroid() {
     if (!spillCentroid) return;
@@ -118,7 +141,7 @@ export function DriftControls({
           <LocateFixed size={14} /> Use spill centroid
         </button>
         <label>
-          <span>Observed at (local time)</span>
+          <span>Observed at (local time){satelliteObservedAt ? " · from satellite metadata" : ""}</span>
           <input type="datetime-local" value={observedAt} onChange={(event) => setObservedAt(event.target.value)} disabled={disabled} required />
         </label>
         <label>
