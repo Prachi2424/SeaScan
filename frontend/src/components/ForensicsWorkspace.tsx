@@ -27,7 +27,6 @@ import { ForensicStory } from "./ForensicStory";
 import { SuspectVesselPanel } from "./SuspectVesselPanel";
 import { EvidenceProvenancePanel } from "./EvidenceProvenancePanel";
 import { ReleaseScenarios } from "./ReleaseScenarios";
-import { AnalysisWorkflow } from "./AnalysisWorkflow";
 import { UploadModal } from "./UploadModal";
 import { FullInvestigationWorkflow } from "./FullInvestigationWorkflow";
 
@@ -95,7 +94,6 @@ export function ForensicsWorkspace({ acceptedFormats, userRole }: ForensicsWorks
   const [reportLoading, setReportLoading] = useState<"pdf" | "package" | null>(null);
   const [scenarioBusy, setScenarioBusy] = useState(false);
   const [scenarios, setScenarios] = useState<ReleaseScenarioResponse | null>(null);
-  const [workflowBusy, setWorkflowBusy] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
   const [reportHistory, setReportHistory] = useState<ReportHistoryEntry[]>([]);
   const [verificationMessage, setVerificationMessage] = useState<string | null>(null);
@@ -373,10 +371,10 @@ export function ForensicsWorkspace({ acceptedFormats, userRole }: ForensicsWorks
           <h2>{investigation.title}</h2>
         </div>
         <div className="forensics-workspace__header-actions">
-          <button type="button" className="secondary-button" onClick={() => void handleReportDownload("pdf")} disabled={scenarioBusy || workflowBusy || reportLoading !== null}>
+          <button type="button" className="secondary-button" onClick={() => void handleReportDownload("pdf")} disabled={scenarioBusy || reportLoading !== null}>
             <Download size={16} /> {reportLoading === "pdf" ? "Building PDF…" : "Export PDF"}
           </button>
-          <button type="button" className="secondary-button" onClick={() => void handleReportDownload("package")} disabled={scenarioBusy || workflowBusy || reportLoading !== null}>
+          <button type="button" className="secondary-button" onClick={() => void handleReportDownload("package")} disabled={scenarioBusy || reportLoading !== null}>
             <FileArchive size={16} /> {reportLoading === "package" ? "Packaging…" : "Evidence package"}
           </button>
           <label className="secondary-button package-verification-button">
@@ -397,13 +395,13 @@ export function ForensicsWorkspace({ acceptedFormats, userRole }: ForensicsWorks
               }}
             />
           </label>
-          <button type="button" className="secondary-button" disabled={scenarioBusy || workflowBusy || backwardLoading || forwardLoading || attributionLoading || reportLoading !== null} onClick={() => { rememberCase(null); setInvestigation(null); resetPipelineState(); void loadInvestigations(); }}>
+          <button type="button" className="secondary-button" disabled={scenarioBusy || backwardLoading || forwardLoading || attributionLoading || reportLoading !== null} onClick={() => { rememberCase(null); setInvestigation(null); resetPipelineState(); void loadInvestigations(); }}>
             Switch investigation
           </button>
-          {canManageEvidence && <button type="button" className="primary-button" disabled={scenarioBusy || workflowBusy} onClick={() => setUploadOpen(true)}>
+          {canManageEvidence && <button type="button" className="primary-button" disabled={scenarioBusy} onClick={() => setUploadOpen(true)}>
             <UploadCloud size={16} /> Upload evidence
           </button>}
-          {canManageEvidence && <button type="button" className="primary-button" disabled={scenarioBusy || workflowBusy} onClick={() => setFullWorkflowOpen(true)}>Run full investigation</button>}
+          {canManageEvidence && <button type="button" className="primary-button" disabled={scenarioBusy} onClick={() => setFullWorkflowOpen(true)}>Run full investigation</button>}
         </div>
       </header>
 
@@ -441,21 +439,13 @@ export function ForensicsWorkspace({ acceptedFormats, userRole }: ForensicsWorks
 
       <EvidenceProvenancePanel assets={evidenceAssets} />
 
-      <AnalysisWorkflow
-        key={`${investigation.id}:${satellite?.asset.id}:${environmentAsset?.asset.id}:${aisAsset?.asset.id}`}
-        satellite={satellite} environment={environmentAsset} ais={aisAsset} centroid={spillCentroid}
-        disabled={scenarioBusy || backwardLoading || forwardLoading || attributionLoading || reportLoading !== null || uploadOpen}
-        onBusy={setWorkflowBusy} onBackward={setBackwardDrift} onForward={setForwardDrift}
-        onAttribution={(result) => { setAttribution(result); setSelectedMmsi(result.candidates[0]?.mmsi ?? null); }}
-      />
-
       <ReleaseScenarios key={investigation.id} environmentId={environmentAsset?.asset.id} aisId={aisAsset?.asset.id}
         centroid={spillCentroid} result={scenarios} onResult={setScenarios} onBusy={setScenarioBusy}
-        disabled={workflowBusy || backwardLoading || forwardLoading || attributionLoading || reportLoading !== null || uploadOpen} />
+        disabled={backwardLoading || forwardLoading || attributionLoading || reportLoading !== null || uploadOpen} />
 
       <IntelligenceFlowGraph completedStages={completedStages} activeStage={activeStage} />
 
-      <fieldset className="controls-row workflow-fields" disabled={scenarioBusy || workflowBusy}>
+      <fieldset className="controls-row workflow-fields" disabled={scenarioBusy}>
         <DriftControls
           key={investigation.id}
           savedBackward={backwardDrift}
