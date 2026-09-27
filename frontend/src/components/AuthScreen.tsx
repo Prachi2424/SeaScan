@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { Anchor, ArrowRight, CheckCircle2, FileCheck2, LockKeyhole, MapPinned, Radar, Satellite, ShieldCheck, Ship, UserRoundSearch, Waves, Workflow, X } from "lucide-react";
+import { Anchor, ArrowRight, CheckCircle2, Database, FileCheck2, LockKeyhole, MapPinned, Radar, Route, Satellite, ScanLine, ShieldCheck, Ship, UserRoundSearch, Waves, Workflow, X } from "lucide-react";
 
 import { api, ApiError, setAuthToken } from "../lib/api";
 import type { AuthUser, UserRole } from "../types/api";
@@ -23,6 +23,15 @@ const features = [
   { key: "drift", icon: Waves, title: "Hindcast and forecast", summary: "Model where the slick may have originated and where it may move.", detail: "Particle simulations use uploaded ocean-current and wind observations to trace the slick backward toward possible release points and forward through selected forecast windows.", output: "Output: timestamped drift trajectories" },
   { key: "attribution", icon: Ship, title: "Explainable vessel ranking", summary: "Correlate the estimated origin with historical AIS traffic.", detail: "SeaScan filters irrelevant traffic and scores candidate vessels using proximity, timing, trajectory, origin-region intersection, and behavioral evidence while preserving exclusions and scoring parameters.", output: "Output: ranked investigative candidates" },
   { key: "reports", icon: FileCheck2, title: "Verifiable reports", summary: "Generate PDF reports and signed evidence packages.", detail: "Reports include evidence provenance, spill geometry, drift results, vessel rankings, legal limitations, SHA-256 hashes, and a digitally signed manifest. Saved report history remains available after refresh.", output: "Output: PDF and tamper-evident ZIP package" },
+] as const;
+
+const workflowJourney = [
+  { icon: Database, title: "Evidence ingestion", description: "Create an investigation and upload satellite, environmental, and AIS evidence with source provenance.", accent: "cyan" },
+  { icon: ScanLine, title: "Slick segmentation", description: "Run U-Net inference, georeference the detected mask, and calculate spill geometry and centroid.", accent: "teal" },
+  { icon: Waves, title: "Environmental fusion", description: "Validate wind and ocean-current observations for the satellite location and observation window.", accent: "blue" },
+  { icon: Route, title: "Drift reconstruction", description: "Simulate backward hindcast and forward forecast trajectories to estimate origin and movement.", accent: "amber" },
+  { icon: Ship, title: "Vessel attribution", description: "Filter historical AIS traffic and rank candidate vessels using explainable evidence scores.", accent: "violet" },
+  { icon: FileCheck2, title: "Verified investigation package", description: "Review the map and findings, then generate the PDF and digitally signed evidence package.", accent: "pink" },
 ] as const;
 
 export function AuthScreen({ onAuthenticated, developmentMode }: AuthScreenProps) {
@@ -153,9 +162,15 @@ export function AuthScreen({ onAuthenticated, developmentMode }: AuthScreenProps
       </div>
     </section>
 
-    <section className="public-section public-section--about" id="about" aria-labelledby="about-title">
-      <div><p className="eyebrow">About SeaScan</p><h2 id="about-title">Evidence-led maritime intelligence</h2></div>
-      <div><p>SeaScan is a research prototype for detecting marine oil spills, reconstructing their likely drift, and correlating estimated release areas with vessel movement history.</p><p>Its results are investigative leads that require validation by qualified authorities. Candidate rankings do not establish identity, causation, liability, or guilt.</p></div>
+    <section className="public-section public-section--journey" id="about" aria-labelledby="about-title">
+      <div className="journey-heading"><p className="eyebrow">About the workflow</p><h2 id="about-title">Workflow Journey</h2><p>From satellite evidence to a verifiable maritime investigation package</p></div>
+      <div className="journey-timeline">
+        {workflowJourney.map((stage, index) => { const Icon = stage.icon; return <article className={`journey-card journey-card--${index % 2 === 0 ? "left" : "right"}`} key={stage.title} tabIndex={0}>
+          <span className={`journey-dot journey-dot--${stage.accent}`} aria-hidden="true" />
+          <div className={`journey-card__icon journey-card__icon--${stage.accent}`}><Icon size={25} /></div>
+          <div><span className="journey-card__number">0{index + 1}</span><h3>{stage.title}</h3><p>{stage.description}</p></div>
+        </article>; })}
+      </div>
     </section>
 
     <section className="public-section public-section--contact" id="contact" aria-labelledby="contact-title">
