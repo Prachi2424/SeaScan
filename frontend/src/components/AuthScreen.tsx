@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { Anchor, ArrowRight, CheckCircle2, LockKeyhole, Radar, Satellite, ShieldCheck, Ship, UserRoundSearch, Waves, X } from "lucide-react";
+import { Anchor, ArrowRight, CheckCircle2, FileCheck2, LockKeyhole, MapPinned, Radar, Satellite, ShieldCheck, Ship, UserRoundSearch, Waves, Workflow, X } from "lucide-react";
 
 import { api, ApiError, setAuthToken } from "../lib/api";
 import type { AuthUser, UserRole } from "../types/api";
@@ -16,6 +16,15 @@ const accounts: { role: UserRole; username: string; label: string; icon: typeof 
   { role: "administrator", username: "admin", label: "Administrator", icon: ShieldCheck, description: "Manage users, roles, and the complete platform." },
 ];
 
+const features = [
+  { key: "detection", icon: Satellite, title: "Satellite spill detection", summary: "Segment suspected oil slicks from SAR or optical imagery.", detail: "The compact U-Net pipeline validates the raster, detects candidate slick pixels, polygonizes the mask, and calculates centroid, area, perimeter, orientation, and bounds.", output: "Output: georeferenced spill mask and geometry" },
+  { key: "automation", icon: Workflow, title: "Automated investigation", summary: "Run the complete evidence workflow from one guided action.", detail: "Run full investigation creates the case, uploads evidence, segments the slick, obtains geometry, runs hindcast and forecast, filters AIS traffic, ranks candidates, and generates the report with stage-by-stage progress and errors.", output: "Output: complete persisted investigation" },
+  { key: "map", icon: MapPinned, title: "Interactive vessel map", summary: "Visualize slicks, trajectories, and candidate vessel tracks together.", detail: "The investigation map overlays the satellite scene, spill boundary, backward and forward drift paths, AIS tracks, origin estimate, and candidate vessels. Investigators can select vessels and fit the view to evidence.", output: "Output: linked spatial evidence layers" },
+  { key: "drift", icon: Waves, title: "Hindcast and forecast", summary: "Model where the slick may have originated and where it may move.", detail: "Particle simulations use uploaded ocean-current and wind observations to trace the slick backward toward possible release points and forward through selected forecast windows.", output: "Output: timestamped drift trajectories" },
+  { key: "attribution", icon: Ship, title: "Explainable vessel ranking", summary: "Correlate the estimated origin with historical AIS traffic.", detail: "SeaScan filters irrelevant traffic and scores candidate vessels using proximity, timing, trajectory, origin-region intersection, and behavioral evidence while preserving exclusions and scoring parameters.", output: "Output: ranked investigative candidates" },
+  { key: "reports", icon: FileCheck2, title: "Verifiable reports", summary: "Generate PDF reports and signed evidence packages.", detail: "Reports include evidence provenance, spill geometry, drift results, vessel rankings, legal limitations, SHA-256 hashes, and a digitally signed manifest. Saved report history remains available after refresh.", output: "Output: PDF and tamper-evident ZIP package" },
+] as const;
+
 export function AuthScreen({ onAuthenticated, developmentMode }: AuthScreenProps) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -23,6 +32,7 @@ export function AuthScreen({ onAuthenticated, developmentMode }: AuthScreenProps
   const [error, setError] = useState<string | null>(null);
   const [selectedRole, setSelectedRole] = useState<UserRole | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
+  const [activeFeature, setActiveFeature] = useState<(typeof features)[number]["key"]>("automation");
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -49,6 +59,8 @@ export function AuthScreen({ onAuthenticated, developmentMode }: AuthScreenProps
   }
 
   const selectedAccount = accounts.find((account) => account.role === selectedRole);
+  const selectedFeature = features.find((feature) => feature.key === activeFeature) ?? features[0];
+  const ActiveFeatureIcon = selectedFeature.icon;
 
   return <main className="auth-shell">
     <header className="auth-header">
@@ -133,9 +145,11 @@ export function AuthScreen({ onAuthenticated, developmentMode }: AuthScreenProps
     <section className="public-section" id="features" aria-labelledby="features-title">
       <div className="public-section__heading"><p className="eyebrow">Platform capabilities</p><h2 id="features-title">One investigation workspace, from detection to evidence</h2><p>SeaScan connects the main stages of a maritime pollution investigation while keeping every result available for expert review.</p></div>
       <div className="public-feature-grid">
-        <article><Satellite size={24} /><h3>Satellite spill detection</h3><p>Segment candidate oil slicks from SAR or optical raster evidence and calculate their geographic properties.</p></article>
-        <article><Waves size={24} /><h3>Drift reconstruction</h3><p>Use uploaded wind and current observations to estimate backward origins and forecast possible movement.</p></article>
-        <article><Ship size={24} /><h3>Explainable vessel ranking</h3><p>Filter historical AIS traffic and rank candidate vessels using transparent spatial, temporal, and behavioral evidence.</p></article>
+        {features.map((feature) => { const Icon = feature.icon; return <button type="button" key={feature.key} className={activeFeature === feature.key ? "selected" : ""} aria-pressed={activeFeature === feature.key} onClick={() => setActiveFeature(feature.key)}><Icon size={24} /><h3>{feature.title}</h3><p>{feature.summary}</p><span>Explore feature <ArrowRight size={14} /></span></button>; })}
+      </div>
+      <div className="public-feature-detail" aria-live="polite">
+        <div className="public-feature-detail__icon"><ActiveFeatureIcon size={29} /></div>
+        <div><p className="eyebrow">Selected capability</p><h3>{selectedFeature.title}</h3><p>{selectedFeature.detail}</p><strong><CheckCircle2 size={15} /> {selectedFeature.output}</strong></div>
       </div>
     </section>
 
