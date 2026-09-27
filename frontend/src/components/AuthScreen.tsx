@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { Anchor, ArrowRight, CheckCircle2, LockKeyhole, Radar, Satellite, ShieldCheck, Ship, UserRoundSearch, Waves, X } from "lucide-react";
+import { Anchor, ArrowRight, CheckCircle2, Database, FileCheck2, LockKeyhole, MapPinned, Radar, Route, Satellite, ScanLine, ShieldCheck, Ship, UserRoundSearch, Waves, Workflow, X } from "lucide-react";
 
 import { api, ApiError, setAuthToken } from "../lib/api";
 import type { AuthUser, UserRole } from "../types/api";
@@ -16,6 +16,24 @@ const accounts: { role: UserRole; username: string; label: string; icon: typeof 
   { role: "administrator", username: "admin", label: "Administrator", icon: ShieldCheck, description: "Manage users, roles, and the complete platform." },
 ];
 
+const features = [
+  { key: "detection", icon: Satellite, title: "Satellite spill detection", summary: "Segment suspected oil slicks from SAR or optical imagery.", detail: "The compact U-Net pipeline validates the raster, detects candidate slick pixels, polygonizes the mask, and calculates centroid, area, perimeter, orientation, and bounds.", output: "Output: georeferenced spill mask and geometry" },
+  { key: "automation", icon: Workflow, title: "Automated investigation", summary: "Run the complete evidence workflow from one guided action.", detail: "Run full investigation creates the case, uploads evidence, segments the slick, obtains geometry, runs hindcast and forecast, filters AIS traffic, ranks candidates, and generates the report with stage-by-stage progress and errors.", output: "Output: complete persisted investigation" },
+  { key: "map", icon: MapPinned, title: "Interactive vessel map", summary: "Visualize slicks, trajectories, and candidate vessel tracks together.", detail: "The investigation map overlays the satellite scene, spill boundary, backward and forward drift paths, AIS tracks, origin estimate, and candidate vessels. Investigators can select vessels and fit the view to evidence.", output: "Output: linked spatial evidence layers" },
+  { key: "drift", icon: Waves, title: "Hindcast and forecast", summary: "Model where the slick may have originated and where it may move.", detail: "Particle simulations use uploaded ocean-current and wind observations to trace the slick backward toward possible release points and forward through selected forecast windows.", output: "Output: timestamped drift trajectories" },
+  { key: "attribution", icon: Ship, title: "Explainable vessel ranking", summary: "Correlate the estimated origin with historical AIS traffic.", detail: "SeaScan filters irrelevant traffic and scores candidate vessels using proximity, timing, trajectory, origin-region intersection, and behavioral evidence while preserving exclusions and scoring parameters.", output: "Output: ranked investigative candidates" },
+  { key: "reports", icon: FileCheck2, title: "Verifiable reports", summary: "Generate PDF reports and signed evidence packages.", detail: "Reports include evidence provenance, spill geometry, drift results, vessel rankings, legal limitations, SHA-256 hashes, and a digitally signed manifest. Saved report history remains available after refresh.", output: "Output: PDF and tamper-evident ZIP package" },
+] as const;
+
+const workflowJourney = [
+  { icon: Database, title: "Evidence ingestion", description: "Create an investigation and upload satellite, environmental, and AIS evidence with source provenance.", accent: "cyan" },
+  { icon: ScanLine, title: "Slick segmentation", description: "Run U-Net inference, georeference the detected mask, and calculate spill geometry and centroid.", accent: "teal" },
+  { icon: Waves, title: "Environmental fusion", description: "Validate wind and ocean-current observations for the satellite location and observation window.", accent: "blue" },
+  { icon: Route, title: "Drift reconstruction", description: "Simulate backward hindcast and forward forecast trajectories to estimate origin and movement.", accent: "amber" },
+  { icon: Ship, title: "Vessel attribution", description: "Filter historical AIS traffic and rank candidate vessels using explainable evidence scores.", accent: "violet" },
+  { icon: FileCheck2, title: "Verified investigation package", description: "Review the map and findings, then generate the PDF and digitally signed evidence package.", accent: "pink" },
+] as const;
+
 export function AuthScreen({ onAuthenticated, developmentMode }: AuthScreenProps) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -23,6 +41,46 @@ export function AuthScreen({ onAuthenticated, developmentMode }: AuthScreenProps
   const [error, setError] = useState<string | null>(null);
   const [selectedRole, setSelectedRole] = useState<UserRole | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
+  const [activeFeature, setActiveFeature] = useState<(typeof features)[number]["key"]>("automation");
+  const journeyRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const section = journeyRef.current;
+    if (!section) return;
+    const cards = Array.from(section.querySelectorAll<HTMLElement>(".journey-card"));
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    section.classList.add("journey-ready");
+    if (reducedMotion || !("IntersectionObserver" in window)) {
+      cards.forEach((card) => card.classList.add("is-visible"));
+      return;
+    }
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting && entry.boundingClientRect.top >= 0) return;
+        entry.target.classList.add("is-visible");
+        observer.unobserve(entry.target);
+      });
+    }, { threshold: 0.18, rootMargin: "0px 0px -8% 0px" });
+
+    const revealPassedCards = () => {
+      cards.forEach((card) => {
+        if (card.getBoundingClientRect().top < window.innerHeight * 0.9) card.classList.add("is-visible");
+      });
+    };
+
+    cards.forEach((card, index) => {
+      card.style.setProperty("--journey-delay", `${Math.min(index * 70, 280)}ms`);
+      observer.observe(card);
+    });
+    window.addEventListener("scroll", revealPassedCards, { passive: true });
+    revealPassedCards();
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("scroll", revealPassedCards);
+    };
+  }, []);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -49,14 +107,16 @@ export function AuthScreen({ onAuthenticated, developmentMode }: AuthScreenProps
   }
 
   const selectedAccount = accounts.find((account) => account.role === selectedRole);
+  const selectedFeature = features.find((feature) => feature.key === activeFeature) ?? features[0];
+  const ActiveFeatureIcon = selectedFeature.icon;
 
   return <main className="auth-shell">
     <header className="auth-header">
       <div className="auth-brand"><Anchor size={29} /><span>Sea<span>Scan</span></span></div>
       <nav aria-label="Welcome page">
-        <a href="#capabilities">Capabilities</a>
-        <a href="#role-access">Role access</a>
-        <a href="#security">Security</a>
+        <a href="#features">Features</a>
+        <a href="#about">About</a>
+        <a href="#contact">Contact</a>
       </nav>
       <span className="auth-header__status"><i /> Operational</span>
     </header>
@@ -99,7 +159,7 @@ export function AuthScreen({ onAuthenticated, developmentMode }: AuthScreenProps
         </div>
       </div>
 
-      <section className="auth-visual" id="capabilities">
+      <section className="auth-visual">
         <div className="auth-visual__content">
           <p className="eyebrow"><Satellite size={13} /> AI-powered maritime intelligence</p>
           <h1>Trace pollution.<br /><span>Reveal its source.</span></h1>
@@ -128,6 +188,36 @@ export function AuthScreen({ onAuthenticated, developmentMode }: AuthScreenProps
         </div>
         <div className="auth-security" id="security"><ShieldCheck size={15} /><span><strong>Enterprise-ready access</strong> Password hashing · expiring sessions · server-enforced permissions</span></div>
       </section>
+    </section>
+
+    <section className="public-section" id="features" aria-labelledby="features-title">
+      <div className="public-section__heading"><p className="eyebrow">Platform capabilities</p><h2 id="features-title">One investigation workspace, from detection to evidence</h2><p>SeaScan connects the main stages of a maritime pollution investigation while keeping every result available for expert review.</p></div>
+      <div className="public-feature-grid">
+        {features.map((feature) => { const Icon = feature.icon; return <button type="button" key={feature.key} className={activeFeature === feature.key ? "selected" : ""} aria-pressed={activeFeature === feature.key} onClick={() => setActiveFeature(feature.key)}><Icon size={24} /><h3>{feature.title}</h3><p>{feature.summary}</p><span>Explore feature <ArrowRight size={14} /></span></button>; })}
+      </div>
+      <div className="public-feature-detail" aria-live="polite">
+        <div className="public-feature-detail__icon"><ActiveFeatureIcon size={29} /></div>
+        <div><p className="eyebrow">Selected capability</p><h3>{selectedFeature.title}</h3><p>{selectedFeature.detail}</p><strong><CheckCircle2 size={15} /> {selectedFeature.output}</strong></div>
+      </div>
+    </section>
+
+    <section className="public-section public-section--journey journey-ready" id="about" aria-labelledby="about-title" ref={journeyRef}>
+      <div className="journey-heading"><p className="eyebrow">About the workflow</p><h2 id="about-title">Workflow Journey</h2><p>From satellite evidence to a verifiable maritime investigation package</p></div>
+      <div className="journey-timeline">
+        {workflowJourney.map((stage, index) => { const Icon = stage.icon; return <article className={`journey-card journey-card--${index % 2 === 0 ? "left" : "right"}`} key={stage.title} tabIndex={0}>
+          <span className={`journey-dot journey-dot--${stage.accent}`} aria-hidden="true" />
+          <div className={`journey-card__icon journey-card__icon--${stage.accent}`}><Icon size={25} /></div>
+          <div><span className="journey-card__number">0{index + 1}</span><h3>{stage.title}</h3><p>{stage.description}</p></div>
+        </article>; })}
+      </div>
+    </section>
+
+    <section className="public-section public-section--contact" id="contact" aria-labelledby="contact-title">
+      <div><p className="eyebrow">Contact and collaboration</p><h2 id="contact-title">Continue the investigation</h2><p>For project access, technical questions, or collaboration, use the SeaScan project repository.</p></div>
+      <a href="https://github.com/Prachi2424/SeaScan" target="_blank" rel="noreferrer">Open project repository <ArrowRight size={17} /></a>
+    </section>
+
+    <footer className="public-footer"><div className="auth-brand"><Anchor size={22} /><span>Sea<span>Scan</span></span></div><p>Satellite detection · Drift reconstruction · AIS correlation</p></footer>
 
       {loginOpen && <section className="auth-panel" role="dialog" aria-modal="true" aria-labelledby="auth-dialog-title">
       <button className="auth-panel__backdrop" type="button" aria-label="Close sign in" onClick={() => setLoginOpen(false)} />
@@ -149,6 +239,5 @@ export function AuthScreen({ onAuthenticated, developmentMode }: AuthScreenProps
         {developmentMode && <p className="auth-demo-note"><CheckCircle2 size={14} /> Demo credentials filled automatically when you select a role.</p>}
       </div>
       </section>}
-    </section>
   </main>;
 }

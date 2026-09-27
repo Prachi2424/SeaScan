@@ -91,6 +91,19 @@ export interface InvestigationDetail extends InvestigationSummary {
     drift_forward?: DriftResponse;
     attribution?: AttributionResponse;
   };
+  report_history: ReportHistoryEntry[];
+}
+
+export interface ReportHistoryEntry {
+  id: string;
+  investigation_id: string;
+  report_type: "pdf" | "package";
+  filename: string;
+  media_type: string;
+  byte_size: number;
+  sha256: string;
+  signing_key_id: string | null;
+  created_at: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -112,6 +125,13 @@ export interface SatellitePresentation {
   groundTruthUrl: string | null;
   bounds: [number, number, number, number] | null;
   filename: string;
+}
+
+export interface PackageVerificationResponse {
+  valid: boolean;
+  trusted: boolean;
+  signing_key_id: string | null;
+  errors: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -213,7 +233,7 @@ export interface AttributionResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 6 — immutable forensic report export
+// Phase 6 — forensic report export with SHA-256 integrity hash
 // ---------------------------------------------------------------------------
 
 export interface ForensicReportRequest {

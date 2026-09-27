@@ -145,7 +145,7 @@ export function UploadModal({
           }
           manualBounds = parsed;
         }
-        const response = await api.uploadSatellite(investigationId, file, { threshold, minComponentPixels, bounds: manualBounds, provenance: tabState[tab].provenance });
+        const response = await api.uploadSatellite(investigationId, file, { threshold, minComponentPixels, bounds: manualBounds, provenance: tabState[tab].provenance, groundTruthFile });
         const responseBounds = response.validation.geographic_bounds;
         const detectedBounds = Array.isArray(responseBounds) && responseBounds.length === 4
           ? (responseBounds.map(Number) as [number, number, number, number])

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import io
 import json
@@ -29,6 +30,8 @@ from reportlab.platypus import (
 
 from app.schemas.investigation import InvestigationDetail
 from app.schemas.report import ReportAnalysisBundle, ReportPackageManifest
+from app.core.config import get_settings
+from app.services.signing import load_private_key, public_key_id, sign_manifest, signing_certificate
 
 
 LEGAL_NOTICE = (
@@ -325,7 +328,7 @@ def build_forensic_pdf(investigation: InvestigationDetail, payload: ReportAnalys
         evidence_rows.append([asset.asset_type.title(), asset.original_filename, f"{asset.byte_size:,}", asset.sha256])
     if not investigation.assets:
         evidence_rows.append(["-", "No persisted evidence assets", "-", "-"])
-    story.extend([_data_table(evidence_rows, [24 * mm, 47 * mm, 21 * mm, 73 * mm], font_size=6.5), Paragraph("The package manifest includes the complete PDF SHA-256 digest. Evidence hashes above identify bytes received and persisted by SeaScan; chain-of-custody controls outside this system remain the responsibility of the investigating authority.", styles["small"]), Paragraph("7. Methodology and limitations", styles["h1"]), Paragraph("The pipeline detects candidate slick geometry from configured model inference, uses uploaded wind/current observations for particle advection, reconstructs AIS traffic around the estimated origin window, filters unrelated tracks, and computes a transparent weighted evidence score.", styles["body"]), Paragraph(MODEL_NOTICE, styles["legal"]), Paragraph("8. Mandatory legal disclaimer", styles["h1"]), Paragraph(LEGAL_NOTICE, styles["legal"]), Paragraph("End of report", styles["cover"]),
+    story.extend([_data_table(evidence_rows, [24 * mm, 47 * mm, 21 * mm, 73 * mm], font_size=6.5), Paragraph("The package manifest includes the complete PDF SHA-256 integrity hash. It can verify the PDF against a separately trusted hash value; it is not a digital signature and does not make the report immutable. Evidence hashes above identify bytes received and persisted by SeaScan; chain-of-custody controls outside this system remain the responsibility of the investigating authority.", styles["small"]), Paragraph("7. Methodology and limitations", styles["h1"]), Paragraph("The pipeline detects candidate slick geometry from configured model inference, uses uploaded wind/current observations for particle advection, reconstructs AIS traffic around the estimated origin window, filters unrelated tracks, and computes a transparent weighted evidence score.", styles["body"]), Paragraph(MODEL_NOTICE, styles["legal"]), Paragraph("8. Mandatory legal disclaimer", styles["h1"]), Paragraph(LEGAL_NOTICE, styles["legal"]), Paragraph("End of report", styles["cover"]),
     ])
     document.build(story, onFirstPage=_footer, onLaterPages=_footer)
     return buffer.getvalue()
@@ -347,7 +350,7 @@ def build_report_package(investigation: InvestigationDetail, payload: ReportAnal
     filename = safe_filename(investigation.title)
     report = build_forensic_pdf(investigation, payload, generated_at)
     manifest = ReportPackageManifest(
-        schema_version="1.1",
+        schema_version="1.2",
         report_filename=filename,
         report_sha256=hashlib.sha256(report).hexdigest(),
         generated_at=generated_at.isoformat(),
@@ -359,9 +362,25 @@ def build_report_package(investigation: InvestigationDetail, payload: ReportAnal
 
 
 def package_zip(filename: str, report: bytes, manifest: ReportPackageManifest) -> bytes:
+    settings = get_settings()
+    key_path = settings.resolved_signing_private_key_path
+    if key_path is None or not key_path.is_file():
+        raise RuntimeError("Evidence-package signing is not configured. Set SEASCAN_SIGNING_PRIVATE_KEY_PATH to an Ed25519 PEM private key.")
+    private_key = load_private_key(key_path)
+    signed_manifest = manifest.model_copy(update={
+        "signature_algorithm": "Ed25519",
+        "signer_identity": settings.signing_identity,
+        "signing_key_id": public_key_id(private_key.public_key()),
+    })
+    manifest_dict = signed_manifest.model_dump()
+    signature, public_pem = sign_manifest(manifest_dict, private_key)
+    certificate_pem = signing_certificate(private_key, settings.signing_identity)
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(filename, report)
-        archive.writestr("manifest.json", json.dumps(manifest.model_dump(), indent=2, sort_keys=True))
+        archive.writestr("manifest.json", json.dumps(manifest_dict, indent=2, sort_keys=True))
+        archive.writestr("manifest.sig", base64.b64encode(signature))
+        archive.writestr("public_key.pem", public_pem)
+        archive.writestr("signing_certificate.pem", certificate_pem)
         archive.writestr("LEGAL_NOTICE.txt", LEGAL_NOTICE + "\n\n" + MODEL_NOTICE + "\n")
     return output.getvalue()

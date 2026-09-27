@@ -13,6 +13,7 @@ import type {
   DriftResponse,
   IngestionResponse,
   InvestigationSummary,
+  ReportHistoryEntry,
   SatelliteDetectionResponse,
   SatellitePresentation,
 } from "../types/api";
@@ -26,8 +27,8 @@ import { ForensicStory } from "./ForensicStory";
 import { SuspectVesselPanel } from "./SuspectVesselPanel";
 import { EvidenceProvenancePanel } from "./EvidenceProvenancePanel";
 import { ReleaseScenarios } from "./ReleaseScenarios";
-import { AnalysisWorkflow } from "./AnalysisWorkflow";
 import { UploadModal } from "./UploadModal";
+import { FullInvestigationWorkflow } from "./FullInvestigationWorkflow";
 
 interface ForensicsWorkspaceProps {
   acceptedFormats: {
@@ -93,8 +94,10 @@ export function ForensicsWorkspace({ acceptedFormats, userRole }: ForensicsWorks
   const [reportLoading, setReportLoading] = useState<"pdf" | "package" | null>(null);
   const [scenarioBusy, setScenarioBusy] = useState(false);
   const [scenarios, setScenarios] = useState<ReleaseScenarioResponse | null>(null);
-  const [workflowBusy, setWorkflowBusy] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
+  const [reportHistory, setReportHistory] = useState<ReportHistoryEntry[]>([]);
+  const [verificationMessage, setVerificationMessage] = useState<string | null>(null);
+  const [fullWorkflowOpen, setFullWorkflowOpen] = useState(false);
 
 
   async function loadInvestigations() {
@@ -122,6 +125,7 @@ export function ForensicsWorkspace({ acceptedFormats, userRole }: ForensicsWorks
     setBackwardDrift(null);
     setForwardDrift(null);
     setAttribution(null);
+    setReportHistory([]);
     setSelectedMmsi(null);
     setBackwardError(null);
     setForwardError(null);
@@ -167,19 +171,38 @@ export function ForensicsWorkspace({ acceptedFormats, userRole }: ForensicsWorks
       const detail = await api.getInvestigation(id);
       if (version !== restoreVersion.current) return;
       setEvidenceAssets(detail.assets);
+      setReportHistory(detail.report_history ?? []);
       const stored = detail.analyses ?? {};
       const asset = (type: "ais" | "environment") => {
         const item = detail.assets.find((entry) => entry.asset_type === type);
         return item ? { asset: item, validation: item.metadata } : null;
       };
       setScenarios(stored.release_scenarios ?? null);
-      setSatellite(stored.satellite_detection ?? null);
+      const restoredSatellite = stored.satellite_detection ?? null;
+      setSatellite(restoredSatellite);
       setAisAsset(asset("ais"));
       setEnvironmentAsset(asset("environment"));
       setBackwardDrift(stored.drift_backward ?? null);
       setForwardDrift(stored.drift_forward ?? null);
       setAttribution(stored.attribution ?? null);
-      setSelectedMmsi(stored.attribution?.candidates[0]?.mmsi ?? null);
+      const savedMmsi = window.localStorage.getItem(`seascan.selectedMmsi.${id}`);
+      setSelectedMmsi(stored.attribution?.candidates.some((candidate) => candidate.mmsi === savedMmsi) ? savedMmsi : stored.attribution?.candidates[0]?.mmsi ?? null);
+      if (restoredSatellite) {
+        const rawBounds = restoredSatellite.validation.geographic_bounds;
+        const bounds = Array.isArray(rawBounds) && rawBounds.length === 4 ? rawBounds.map(Number) as [number, number, number, number] : null;
+        try {
+          const [preview, groundTruth] = await Promise.all([
+            api.satellitePreview(id, restoredSatellite.asset.id),
+            api.groundTruthPreview(id, restoredSatellite.asset.id).catch(() => null),
+          ]);
+          if (version !== restoreVersion.current) return;
+          const presentation = { imageUrl: URL.createObjectURL(preview), groundTruthUrl: groundTruth ? URL.createObjectURL(groundTruth) : null, bounds, filename: restoredSatellite.asset.original_filename };
+          satellitePresentationRef.current = presentation;
+          setSatellitePresentation(presentation);
+        } catch {
+          setSatellitePresentation({ imageUrl: null, groundTruthUrl: null, bounds, filename: restoredSatellite.asset.original_filename });
+        }
+      }
       setInvestigation(detail);
       rememberCase(id);
     } catch (error) {
@@ -263,6 +286,10 @@ export function ForensicsWorkspace({ acceptedFormats, userRole }: ForensicsWorks
 
   const activeStage: FlowStageKey | null = backwardLoading || forwardLoading ? "drift" : attributionLoading ? "aisFilter" : null;
 
+  useEffect(() => {
+    if (investigation && selectedMmsi) window.localStorage.setItem(`seascan.selectedMmsi.${investigation.id}`, selectedMmsi);
+  }, [investigation, selectedMmsi]);
+
   async function handleReportDownload(format: "pdf" | "package") {
     if (!investigation) return;
     setReportLoading(format);
@@ -271,6 +298,8 @@ export function ForensicsWorkspace({ acceptedFormats, userRole }: ForensicsWorks
     try {
       if (format === "pdf") await api.downloadForensicPdf(payload);
       else await api.downloadForensicPackage(payload);
+      const refreshed = await api.getInvestigation(investigation.id);
+      setReportHistory(refreshed.report_history ?? []);
     } catch (error) {
       setReportError(describeError(error));
     } finally {
@@ -308,7 +337,8 @@ export function ForensicsWorkspace({ acceptedFormats, userRole }: ForensicsWorks
             </label>
           )}
 
-          {canManageEvidence ? <form onSubmit={(event) => void handleCreateInvestigation(event)} className="investigation-gate__form">
+          {canManageEvidence ? <>
+          <form onSubmit={(event) => void handleCreateInvestigation(event)} className="investigation-gate__form">
             <label>
               <span>New investigation title</span>
               <input
@@ -323,9 +353,12 @@ export function ForensicsWorkspace({ acceptedFormats, userRole }: ForensicsWorks
             <button type="submit" disabled={creating}>
               {creating ? "Creating…" : "Start investigation"}
             </button>
-          </form> : <p className="investigation-gate__status">Analysts can open and analyse existing investigations. An investigator or administrator creates new cases and uploads evidence.</p>}
+          </form>
+          <button type="button" className="primary-button" onClick={() => setFullWorkflowOpen(true)}>Run full investigation</button>
+          </> : <p className="investigation-gate__status">Analysts can open and analyse existing investigations. An investigator or administrator creates new cases and uploads evidence.</p>}
           {createError && <p className="investigation-gate__status investigation-gate__status--error">{createError}</p>}
         </div>
+        <FullInvestigationWorkflow open={fullWorkflowOpen} onClose={() => setFullWorkflowOpen(false)} onComplete={(id) => { setFullWorkflowOpen(false); void loadInvestigations(); void handleSelectInvestigation(id); }} />
       </section>
     );
   }
@@ -338,22 +371,55 @@ export function ForensicsWorkspace({ acceptedFormats, userRole }: ForensicsWorks
           <h2>{investigation.title}</h2>
         </div>
         <div className="forensics-workspace__header-actions">
-          <button type="button" className="secondary-button" onClick={() => void handleReportDownload("pdf")} disabled={scenarioBusy || workflowBusy || reportLoading !== null}>
+          <button type="button" className="secondary-button" onClick={() => void handleReportDownload("pdf")} disabled={scenarioBusy || reportLoading !== null}>
             <Download size={16} /> {reportLoading === "pdf" ? "Building PDF…" : "Export PDF"}
           </button>
-          <button type="button" className="secondary-button" onClick={() => void handleReportDownload("package")} disabled={scenarioBusy || workflowBusy || reportLoading !== null}>
+          <button type="button" className="secondary-button" onClick={() => void handleReportDownload("package")} disabled={scenarioBusy || reportLoading !== null}>
             <FileArchive size={16} /> {reportLoading === "package" ? "Packaging…" : "Evidence package"}
           </button>
-          <button type="button" className="secondary-button" disabled={scenarioBusy || workflowBusy || backwardLoading || forwardLoading || attributionLoading || reportLoading !== null} onClick={() => { rememberCase(null); setInvestigation(null); resetPipelineState(); void loadInvestigations(); }}>
+          <label className="secondary-button package-verification-button">
+            Verify package
+            <input
+              type="file"
+              accept="application/zip,.zip"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (!file) return;
+                setVerificationMessage("Verifying package…");
+                void api.verifyEvidencePackage(file)
+                  .then((result) => setVerificationMessage(result.valid && result.trusted
+                    ? `Valid trusted signature · key ${result.signing_key_id?.slice(0, 16)}…`
+                    : `Verification failed: ${result.errors.join(" ")}`))
+                  .catch((error) => setVerificationMessage(`Verification failed: ${describeError(error)}`));
+                event.target.value = "";
+              }}
+            />
+          </label>
+          <button type="button" className="secondary-button" disabled={scenarioBusy || backwardLoading || forwardLoading || attributionLoading || reportLoading !== null} onClick={() => { rememberCase(null); setInvestigation(null); resetPipelineState(); void loadInvestigations(); }}>
             Switch investigation
           </button>
-          {canManageEvidence && <button type="button" className="primary-button" disabled={scenarioBusy || workflowBusy} onClick={() => setUploadOpen(true)}>
+          {canManageEvidence && <button type="button" className="primary-button" disabled={scenarioBusy} onClick={() => setUploadOpen(true)}>
             <UploadCloud size={16} /> Upload evidence
           </button>}
+          {canManageEvidence && <button type="button" className="primary-button" disabled={scenarioBusy} onClick={() => setFullWorkflowOpen(true)}>Run full investigation</button>}
         </div>
       </header>
 
       {reportError && <p className="report-export-error" role="alert">Report export failed: {reportError}</p>}
+      {verificationMessage && <p className="report-export-status" role="status">{verificationMessage}</p>}
+
+      {reportHistory.length > 0 && (
+        <section className="report-history" aria-labelledby="report-history-title">
+          <h3 id="report-history-title">Report history</h3>
+          <div className="report-history__list">
+            {reportHistory.map((entry) => (
+              <button type="button" className="secondary-button" key={entry.id} onClick={() => void api.downloadSavedReport(entry)}>
+                <Download size={15} /> {entry.report_type === "package" ? "Signed package" : "PDF"} · {new Date(entry.created_at).toLocaleString()}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="asset-chip-row" role="list">
         <span role="listitem" className={`asset-chip ${satellite ? "asset-chip--ready" : ""}`}>
@@ -373,21 +439,13 @@ export function ForensicsWorkspace({ acceptedFormats, userRole }: ForensicsWorks
 
       <EvidenceProvenancePanel assets={evidenceAssets} />
 
-      <AnalysisWorkflow
-        key={`${investigation.id}:${satellite?.asset.id}:${environmentAsset?.asset.id}:${aisAsset?.asset.id}`}
-        satellite={satellite} environment={environmentAsset} ais={aisAsset} centroid={spillCentroid}
-        disabled={scenarioBusy || backwardLoading || forwardLoading || attributionLoading || reportLoading !== null || uploadOpen}
-        onBusy={setWorkflowBusy} onBackward={setBackwardDrift} onForward={setForwardDrift}
-        onAttribution={(result) => { setAttribution(result); setSelectedMmsi(result.candidates[0]?.mmsi ?? null); }}
-      />
-
       <ReleaseScenarios key={investigation.id} environmentId={environmentAsset?.asset.id} aisId={aisAsset?.asset.id}
         centroid={spillCentroid} result={scenarios} onResult={setScenarios} onBusy={setScenarioBusy}
-        disabled={workflowBusy || backwardLoading || forwardLoading || attributionLoading || reportLoading !== null || uploadOpen} />
+        disabled={backwardLoading || forwardLoading || attributionLoading || reportLoading !== null || uploadOpen} />
 
       <IntelligenceFlowGraph completedStages={completedStages} activeStage={activeStage} />
 
-      <fieldset className="controls-row workflow-fields" disabled={scenarioBusy || workflowBusy}>
+      <fieldset className="controls-row workflow-fields" disabled={scenarioBusy}>
         <DriftControls
           key={investigation.id}
           savedBackward={backwardDrift}
@@ -465,6 +523,7 @@ export function ForensicsWorkspace({ acceptedFormats, userRole }: ForensicsWorks
         onAisUploaded={(response) => { setAisAsset(response); setEvidenceAssets((assets) => [response.asset, ...assets]); }}
         onEnvironmentUploaded={(response) => { setEnvironmentAsset(response); setEvidenceAssets((assets) => [response.asset, ...assets]); }}
       />
+      <FullInvestigationWorkflow open={fullWorkflowOpen} onClose={() => setFullWorkflowOpen(false)} onComplete={(id) => { setFullWorkflowOpen(false); void loadInvestigations(); void handleSelectInvestigation(id); }} />
     </section>
   );
 }

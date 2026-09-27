@@ -30,3 +30,6 @@ output/
 
 # Machine-local Python environment
 .venv-local/
+backend/.vendor/
+data/preview-uploads/
+data/preview-processed/
