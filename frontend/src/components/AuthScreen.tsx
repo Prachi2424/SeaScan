@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { Anchor, ArrowRight, CheckCircle2, Database, FileCheck2, LockKeyhole, MapPinned, Radar, Route, Satellite, ScanLine, ShieldCheck, Ship, UserRoundSearch, Waves, Workflow, X } from "lucide-react";
 
@@ -42,6 +42,45 @@ export function AuthScreen({ onAuthenticated, developmentMode }: AuthScreenProps
   const [selectedRole, setSelectedRole] = useState<UserRole | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
   const [activeFeature, setActiveFeature] = useState<(typeof features)[number]["key"]>("automation");
+  const journeyRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const section = journeyRef.current;
+    if (!section) return;
+    const cards = Array.from(section.querySelectorAll<HTMLElement>(".journey-card"));
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    section.classList.add("journey-ready");
+    if (reducedMotion || !("IntersectionObserver" in window)) {
+      cards.forEach((card) => card.classList.add("is-visible"));
+      return;
+    }
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting && entry.boundingClientRect.top >= 0) return;
+        entry.target.classList.add("is-visible");
+        observer.unobserve(entry.target);
+      });
+    }, { threshold: 0.18, rootMargin: "0px 0px -8% 0px" });
+
+    const revealPassedCards = () => {
+      cards.forEach((card) => {
+        if (card.getBoundingClientRect().top < window.innerHeight * 0.9) card.classList.add("is-visible");
+      });
+    };
+
+    cards.forEach((card, index) => {
+      card.style.setProperty("--journey-delay", `${Math.min(index * 70, 280)}ms`);
+      observer.observe(card);
+    });
+    window.addEventListener("scroll", revealPassedCards, { passive: true });
+    revealPassedCards();
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("scroll", revealPassedCards);
+    };
+  }, []);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -162,7 +201,7 @@ export function AuthScreen({ onAuthenticated, developmentMode }: AuthScreenProps
       </div>
     </section>
 
-    <section className="public-section public-section--journey" id="about" aria-labelledby="about-title">
+    <section className="public-section public-section--journey journey-ready" id="about" aria-labelledby="about-title" ref={journeyRef}>
       <div className="journey-heading"><p className="eyebrow">About the workflow</p><h2 id="about-title">Workflow Journey</h2><p>From satellite evidence to a verifiable maritime investigation package</p></div>
       <div className="journey-timeline">
         {workflowJourney.map((stage, index) => { const Icon = stage.icon; return <article className={`journey-card journey-card--${index % 2 === 0 ? "left" : "right"}`} key={stage.title} tabIndex={0}>
