@@ -1,0 +1,12 @@
+streamlit
+torch
+torchvision
+geopandas
+folium
+streamlit-folium
+scikit-learn
+joblib
+pandas
+numpy
+shapely
+pyogrio
