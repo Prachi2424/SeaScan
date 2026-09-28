@@ -41,14 +41,22 @@ def test_investigation_is_persisted_and_retrievable() -> None:
     assert read_response.json()["assets"] == []
 
 
-def test_satellite_upload_refuses_untrained_inference() -> None:
-    with TestClient(app) as client:
-        investigation = client.post("/api/investigations", json={"title": "No model case"}).json()
-        response = client.post(
-            "/api/satellite/upload",
-            data={"investigation_id": investigation["id"]},
-            files={"file": ("scene.png", b"not-an-image", "image/png")},
-        )
+def test_satellite_upload_refuses_untrained_inference(tmp_path) -> None:
+    from app.core.config import Settings, get_settings
+
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        _env_file=None, model_weights_path=tmp_path / "missing.pt"
+    )
+    try:
+        with TestClient(app) as client:
+            investigation = client.post("/api/investigations", json={"title": "No model case"}).json()
+            response = client.post(
+                "/api/satellite/upload",
+                data={"investigation_id": investigation["id"]},
+                files={"file": ("scene.png", b"not-an-image", "image/png")},
+            )
+    finally:
+        app.dependency_overrides.pop(get_settings, None)
 
     assert response.status_code == 503
     assert "will not fabricate" in response.json()["detail"]

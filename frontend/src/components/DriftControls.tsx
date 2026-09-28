@@ -71,6 +71,10 @@ export function DriftControls({
   const hasSavedLocation = saved.latitude !== undefined && saved.longitude !== undefined;
 
   const disabled = !environmentAsset;
+  const hasValidLocation = latitude.trim() !== "" && longitude.trim() !== "" &&
+    Number.isFinite(Number(latitude)) && Number.isFinite(Number(longitude)) &&
+    Math.abs(Number(latitude)) <= 90 && Math.abs(Number(longitude)) <= 180;
+  const canRun = !disabled && hasValidLocation && Boolean(observedAt);
 
   useEffect(() => {
     if (hasSavedObservedAt || !satelliteObservedAt) return;
@@ -126,6 +130,7 @@ export function DriftControls({
       <header className="controls-card__header">
         <h2 id="drift-controls-title">Environmental drift modelling</h2>
         {!environmentAsset && <p className="controls-card__notice">Upload a current/wind CSV to enable hindcasting and forecasting.</p>}
+        {environmentAsset && !hasValidLocation && <p className="controls-card__notice">Upload and segment a georeferenced satellite image to fill the spill centroid, or enter a verified spill location below.</p>}
       </header>
 
       <div className="controls-card__grid">
@@ -168,7 +173,7 @@ export function DriftControls({
             <span>Hindcast window (hours)</span>
             <input type="number" min={1} max={168} value={backwardHours} onChange={(event) => setBackwardHours(Number.parseFloat(event.target.value))} disabled={disabled} />
           </label>
-          <button type="submit" disabled={disabled || backwardLoading}>
+          <button type="submit" disabled={!canRun || backwardLoading}>
             <CornerUpLeft size={15} /> {backwardLoading ? "Hindcasting…" : "Run backward hindcast"}
           </button>
           {backwardError && <p className="controls-card__error">{backwardError}</p>}
@@ -179,7 +184,7 @@ export function DriftControls({
             <span>Forecast window (hours)</span>
             <input type="number" min={1} max={168} value={forwardHours} onChange={(event) => setForwardHours(Number.parseFloat(event.target.value))} disabled={disabled} />
           </label>
-          <button type="submit" disabled={disabled || forwardLoading}>
+          <button type="submit" disabled={!canRun || forwardLoading}>
             <CornerUpRight size={15} /> {forwardLoading ? "Forecasting…" : "Run forward prediction"}
           </button>
           {forwardError && <p className="controls-card__error">{forwardError}</p>}

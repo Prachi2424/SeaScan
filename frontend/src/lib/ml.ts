@@ -10,11 +10,9 @@ export interface OilSpillPrediction {
 let clientPromise: Promise<Client> | null = null;
 
 function getClient(): Promise<Client> {
-  if (!clientPromise) {
-    clientPromise = Client.connect("tanyajain/SeaScan");
-  }
-
-  return clientPromise;
+  const client = clientPromise ?? Client.connect("tanyajain/SeaScan");
+  clientPromise = client;
+  return client;
 }
 
 export async function predictOilSpill(

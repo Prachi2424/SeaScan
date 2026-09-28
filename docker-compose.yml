@@ -8,7 +8,7 @@ services:
       SEASCAN_DATABASE_URL: sqlite:///./seascan.db
       SEASCAN_UPLOAD_DIRECTORY: /data/uploads
       SEASCAN_PROCESSED_DIRECTORY: /data/processed
-      SEASCAN_MODEL_WEIGHTS_PATH: ${SEASCAN_MODEL_WEIGHTS_PATH:-}
+      SEASCAN_MODEL_WEIGHTS_PATH: ${SEASCAN_MODEL_WEIGHTS_PATH:-models/seascan_unet.pt}
     ports:
       - "8000:8000"
     volumes:

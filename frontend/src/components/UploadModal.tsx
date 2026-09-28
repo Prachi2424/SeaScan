@@ -137,18 +137,36 @@ export function UploadModal({
     updateTab(tab, { submitting: true, error: null, successMessage: null });
     try {
       if (tab === "satellite") {
-        const prediction = await predictOilSpill(file);
-
-        setMlPrediction(prediction);
-
-        updateTab(tab, {
-          submitting: false,
-          successMessage:
-            `${prediction.prediction === "Oil_Spill" ? "Oil spill detected" : "No oil spill detected"} ` +
-            `(${(prediction.confidence * 100).toFixed(2)}% confidence).`,
+        const manualBounds = Object.fromEntries(
+          (["west", "south", "east", "north"] as const).map((side) => [side, Number(bounds[side])]),
+        ) as typeof DEMO_SATELLITE_BOUNDS;
+        const selectedBounds = automaticBounds ?? (showAdvancedBounds &&
+          Object.values(bounds).every((value) => value.trim() !== "") ? manualBounds : undefined);
+        if (georeferenceStatus === "missing" && !selectedBounds) {
+          updateTab(tab, { submitting: false, error: "This PNG needs geographic bounds. Open Advanced georeferencing and enter its verified coordinates, or upload a GeoTIFF." });
+          return;
+        }
+        const response = await api.uploadSatellite(investigationId, file, {
+          provenance: tabState.satellite.provenance,
+          threshold,
+          minComponentPixels,
+          bounds: selectedBounds,
+          groundTruthFile,
         });
+        const rawBounds = response.validation.geographic_bounds;
+        const displayBounds = Array.isArray(rawBounds) && rawBounds.length === 4
+          ? rawBounds.map(Number) as [number, number, number, number] : null;
+        const preview = await api.satellitePreview(investigationId, response.asset.id).catch(() => null);
+        onSatelliteUploaded(response, {
+          imageUrl: preview ? URL.createObjectURL(preview) : file.type === "image/png" ? URL.createObjectURL(file) : null,
+          groundTruthUrl: groundTruthFile ? URL.createObjectURL(groundTruthFile) : null,
+          bounds: displayBounds,
+          filename: file.name,
+        });
+        updateTab(tab, { submitting: false, successMessage: "Satellite evidence stored and segmented. The spill geometry is now available to the investigation." });
 
-        console.log("SeaScan ML prediction:", prediction);
+        // The external classifier is supplemental; its availability cannot block evidence ingestion.
+        void predictOilSpill(file).then(setMlPrediction).catch(() => setMlPrediction(null));
 
       } else if (tab === "ais") {
         const response = await api.uploadAis(
@@ -335,9 +353,7 @@ export function UploadModal({
                     {(mlPrediction.oil_spill_probability * 100).toFixed(2)}%
                   </div>
 
-                  <div>
-                    Model: ResNet-34
-                  </div>
+                  <div>Supplemental external image classification; not the SeaScan segmentation or spill geometry.</div>
                 </div>
               )}
 

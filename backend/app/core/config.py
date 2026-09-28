@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./seascan.db"
     upload_directory: Path = Path("../data/uploads")
     processed_directory: Path = Path("../data/processed")
-    model_weights_path: Path | None = None
+    model_weights_path: Path | None = Path("models/seascan_unet.pt")
     signing_private_key_path: Path | None = None
     signing_identity: str = "SeaScan local signing authority"
     max_upload_size_mb: int = Field(default=512, ge=1, le=4096)
