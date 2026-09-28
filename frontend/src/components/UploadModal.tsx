@@ -1,3 +1,6 @@
+import { predictOilSpill } from "../lib/ml";
+import type { OilSpillPrediction } from "../lib/ml";
+
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { Anchor, CheckCircle2, ChevronDown, Satellite, Waves, X } from "lucide-react";
@@ -76,6 +79,7 @@ export function UploadModal({
   const [automaticBounds, setAutomaticBounds] = useState<typeof DEMO_SATELLITE_BOUNDS | null>(null);
   const [bounds, setBounds] = useState({ west: "", south: "", east: "", north: "" });
   const [groundTruthFile, setGroundTruthFile] = useState<File | null>(null);
+  const [mlPrediction, setMlPrediction] = useState<OilSpillPrediction | null>(null);
 
   if (!open) return null;
 
@@ -86,6 +90,7 @@ export function UploadModal({
   async function handleFileSelection(tab: UploadTab, file: File | null) {
     updateTab(tab, { file, error: null, successMessage: null });
     if (tab !== "satellite") return;
+    setMlPrediction(null);
     setAutomaticBounds(null);
     setShowAdvancedBounds(false);
     if (!file) {
@@ -132,46 +137,48 @@ export function UploadModal({
     updateTab(tab, { submitting: true, error: null, successMessage: null });
     try {
       if (tab === "satellite") {
-        let manualBounds: { west: number; south: number; east: number; north: number } | undefined;
-        if (!automaticBounds && showAdvancedBounds) {
-          const parsed = {
-            west: Number.parseFloat(bounds.west),
-            south: Number.parseFloat(bounds.south),
-            east: Number.parseFloat(bounds.east),
-            north: Number.parseFloat(bounds.north),
-          };
-          if (Object.values(parsed).some((value) => Number.isNaN(value))) {
-            throw new Error("Provide numeric west, south, east, and north bounds to georeference a PNG.");
-          }
-          manualBounds = parsed;
-        }
-        const response = await api.uploadSatellite(investigationId, file, { threshold, minComponentPixels, bounds: manualBounds, provenance: tabState[tab].provenance, groundTruthFile });
-        const responseBounds = response.validation.geographic_bounds;
-        const detectedBounds = Array.isArray(responseBounds) && responseBounds.length === 4
-          ? (responseBounds.map(Number) as [number, number, number, number])
-          : automaticBounds
-            ? ([automaticBounds.west, automaticBounds.south, automaticBounds.east, automaticBounds.north] as [number, number, number, number])
-            : manualBounds
-              ? ([manualBounds.west, manualBounds.south, manualBounds.east, manualBounds.north] as [number, number, number, number])
-              : null;
-        onSatelliteUploaded(response, {
-          imageUrl: file.type === "image/png" ? URL.createObjectURL(file) : null,
-          groundTruthUrl: groundTruthFile ? URL.createObjectURL(groundTruthFile) : null,
-          bounds: detectedBounds,
-          filename: file.name,
-        });
+        const prediction = await predictOilSpill(file);
+
+        setMlPrediction(prediction);
+
         updateTab(tab, {
           submitting: false,
-          successMessage: `Segmented ${response.validation.component_count as number} spill component(s) from the uploaded raster.`,
+          successMessage:
+            `${prediction.prediction === "Oil_Spill" ? "Oil spill detected" : "No oil spill detected"} ` +
+            `(${(prediction.confidence * 100).toFixed(2)}% confidence).`,
         });
+
+        console.log("SeaScan ML prediction:", prediction);
+
       } else if (tab === "ais") {
-        const response = await api.uploadAis(investigationId, file, tabState[tab].provenance);
+        const response = await api.uploadAis(
+          investigationId,
+          file,
+          tabState[tab].provenance
+        );
+
         onAisUploaded(response);
-        updateTab(tab, { submitting: false, successMessage: `AIS evidence stored (${response.asset.byte_size.toLocaleString()} bytes).` });
+
+        updateTab(tab, {
+          submitting: false,
+          successMessage:
+            `AIS evidence stored (${response.asset.byte_size.toLocaleString()} bytes).`,
+        });
+
       } else {
-        const response = await api.uploadEnvironment(investigationId, file, tabState[tab].provenance);
+        const response = await api.uploadEnvironment(
+          investigationId,
+          file,
+          tabState[tab].provenance
+        );
+
         onEnvironmentUploaded(response);
-        updateTab(tab, { submitting: false, successMessage: `Environmental evidence stored (${response.asset.byte_size.toLocaleString()} bytes).` });
+
+        updateTab(tab, {
+          submitting: false,
+          successMessage:
+            `Environmental evidence stored (${response.asset.byte_size.toLocaleString()} bytes).`,
+        });
       }
     } catch (error) {
       const message = error instanceof ApiError ? error.message : error instanceof Error ? error.message : "Upload failed.";
@@ -310,6 +317,29 @@ export function UploadModal({
 
               {state.error && <p className="modal__message modal__message--error">{state.error}</p>}
               {state.successMessage && <p className="modal__message modal__message--success">{state.successMessage}</p>}
+
+              {key === "satellite" && mlPrediction && (
+                <div className="modal__message modal__message--success">
+                  <strong>
+                    {mlPrediction.prediction === "Oil_Spill"
+                      ? "🛢️ Oil Spill Detected"
+                      : "✓ No Oil Spill Detected"}
+                  </strong>
+
+                  <div style={{ marginTop: "8px" }}>
+                    Confidence: {(mlPrediction.confidence * 100).toFixed(2)}%
+                  </div>
+
+                  <div>
+                    Oil Spill Probability:{" "}
+                    {(mlPrediction.oil_spill_probability * 100).toFixed(2)}%
+                  </div>
+
+                  <div>
+                    Model: ResNet-34
+                  </div>
+                </div>
+              )}
 
               <button type="submit" className="modal__submit" disabled={state.submitting}>
                 {state.submitting ? "Uploading evidence…" : "Upload to SeaScan backend"}
